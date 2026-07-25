@@ -20,6 +20,10 @@ import {
   hasPerModelQuota,
   isProviderExhaustedReason,
 } from "../accountFallback.ts";
+import {
+  isAlibabaFreeQuotaExhaustedError,
+  isAlibabaModelStudioProvider,
+} from "../alibabaFreeTier.ts";
 import { RateLimitReason } from "../../config/constants.ts";
 import { isProviderCircuitOpenResult, isRequestScopedUpstreamFailure } from "./comboPredicates.ts";
 import { isCloudflareFingerprintRejection } from "../errorClassifier.ts";
@@ -117,6 +121,14 @@ export function applyComboTargetExhaustion(
     provider &&
     provider !== "unknown"
   ) {
+    // Alibaba free-tier drain is model-scoped — the connection and sibling models stay eligible.
+    if (
+      result.status === 403 &&
+      isAlibabaModelStudioProvider(provider) &&
+      isAlibabaFreeQuotaExhaustedError(opts.errorText)
+    ) {
+      return false;
+    }
     markAuthLevelExhaustion(target, { result, sets, log, tag });
     return true;
   }
