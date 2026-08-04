@@ -1,0 +1,14 @@
+---
+description: Per-project Memrize memory — use memrize-project MCP and .memrize/memrize.db
+alwaysApply: true
+---
+
+# Project memory (Memrize)
+
+This repo uses **Memrize** for persistent project memory alongside Cursor & Hermes memory systems.
+
+- **Project DB:** `.memrize/memrize.db` (gitignored)
+- **Global rules:** `~/.memrize/global.db` via `memrize-global` MCP
+- **Session start:** call `memrize_get_context` on `memrize-project` MCP or `scripts/memrize/context.sh`
+
+Report failures: `scripts/memrize/report-error.sh <type> "<title>"`

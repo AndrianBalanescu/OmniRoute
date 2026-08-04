@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "memrize-omniroute": {
+      "command": "/home/ubuntu/dev/OmniRoute/scripts/memrize/mcp-project.sh",
+      "args": [],
+      "cwd": "/home/ubuntu/dev/OmniRoute"
+    }
+  }
+}

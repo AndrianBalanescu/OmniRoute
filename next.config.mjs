@@ -290,7 +290,16 @@ const nextConfig = {
     "process",
   ],
   transpilePackages: ["@omniroute/open-sse", "@lobehub/icons", "fumadocs-ui", "fumadocs-core"],
-  allowedDevOrigins: ["localhost", "127.0.0.1", "192.168.0.250"],
+  // Homelab/Tailscale hosts so `npm run dev` HMR works from Mac via MagicDNS.
+  allowedDevOrigins: [
+    "localhost",
+    "127.0.0.1",
+    "192.168.0.250",
+    "192.168.1.205",
+    "100.70.158.21",
+    "homelab",
+    "homelab.taild8b2e2.ts.net",
+  ],
   typescript: {
     // TODO: Re-enable after fixing all sub-component useTranslations scope issues
     ignoreBuildErrors: true,

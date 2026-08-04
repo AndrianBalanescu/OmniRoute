@@ -1,0 +1,45 @@
+---
+description: Memrize memory integration — project + global context, MCP tools, failure reporting
+alwaysApply: true
+---
+
+# Memrize (OmniRoute)
+
+OmniRoute uses **Memrize** for persistent memory. Battle-test it on real work in this repo.
+
+## Databases
+
+| Layer | Path | Use |
+|-------|------|-----|
+| Project | `.memrize/memrize.db` | Architecture, decisions, bugs, session learnings for OmniRoute |
+| Global | `~/.memrize/global.db` | User rules + cross-project facts (Andrew prefs, infra) |
+
+**Never** rely on `./memrize.db` in repo root — that is an empty CLI default trap. Always use `--db` or MCP.
+
+## Session start
+
+1. Call **`memrize_get_context`** on `memrize-omniroute` (project) and/or `memrize-global` (user rules).
+2. Or run: `scripts/memrize/context.sh`
+
+## During work
+
+- **`memrize_remember`** — significant decisions, root-cause findings, API quirks discovered
+- **`memrize_search`** — before re-investigating something already solved
+- **`memrize_pin_rule`** — only for project-specific invariants (global rules live in global DB)
+- **`memrize_record_failure`** / `scripts/memrize/report-error.sh` — bugs, test failures, MCP issues
+
+## Dogfooding feedback
+
+When Memrize itself misbehaves (wrong DB, corrupt forget, MCP errors), record it:
+
+```bash
+scripts/memrize/report-error.sh test_failure "short title" '{"component":"..."}'
+```
+
+This feeds Achiles `NEXT_DEV_PROJECT=memrize` for fixes.
+
+## Env
+
+Source once per terminal: `source scripts/memrize/env.sh`
+
+Setup / rebuild: `scripts/memrize/setup.sh`
