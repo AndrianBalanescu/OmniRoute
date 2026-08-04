@@ -11,9 +11,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { GeminiWebExecutor, buildGeminiToolResponse, buildGeminiToolPrompt } = await import(
-  "../../open-sse/executors/gemini-web.ts"
-);
+const { GeminiWebExecutor, buildGeminiToolResponse, buildGeminiToolPrompt } =
+  await import("../../open-sse/executors/gemini-web.ts");
 
 interface ToolCallLike {
   function: { name: string; arguments: string };
@@ -163,6 +162,63 @@ test("#7286: buildGeminiToolPrompt falls back to the user text alone when there 
   assert.equal(buildGeminiToolPrompt(effectiveMessages), "hello");
 });
 
+test("buildGeminiToolPrompt flattens multi-turn history + tool results (Hermes agent loops)", () => {
+  const prompt = buildGeminiToolPrompt([
+    { role: "system", content: "TOOL CONTRACT HERE" },
+    { role: "user", content: "fa un sumar cu ultimele sesiuni hermes" },
+    {
+      role: "assistant",
+      content: "",
+      tool_calls: [
+        {
+          id: "call_1",
+          type: "function",
+          function: { name: "session_search", arguments: '{"query":"hermes"}' },
+        },
+      ],
+    },
+    {
+      role: "tool",
+      tool_call_id: "call_1",
+      content: "session-abc: discussed OmniRoute gemini-web",
+    },
+    { role: "user", content: "please continue" },
+  ]);
+
+  assert.match(prompt, /^TOOL CONTRACT HERE\n\n/);
+  assert.match(prompt, /fa un sumar cu ultimele sesiuni hermes/);
+  assert.match(prompt, /session_search/);
+  assert.match(prompt, /session-abc: discussed OmniRoute gemini-web/);
+  assert.match(prompt, /please continue/);
+  assert.match(prompt, /Conversation:/);
+  // Must NOT be the old last-user-only shape.
+  assert.notEqual(prompt, "TOOL CONTRACT HERE\n\nplease continue");
+});
+
+test("buildGeminiToolPrompt keeps tool results after the original ask when there is no new user turn", () => {
+  const prompt = buildGeminiToolPrompt([
+    { role: "system", content: "TOOLS" },
+    { role: "user", content: "list hermes sessions" },
+    {
+      role: "assistant",
+      content: null,
+      tool_calls: [
+        {
+          id: "c1",
+          type: "function",
+          function: { name: "search_files", arguments: '{"pattern":"session"}' },
+        },
+      ],
+    },
+    { role: "tool", tool_call_id: "c1", content: "found 3 session files" },
+  ] as Array<{ role: string; content: unknown; tool_calls?: unknown; tool_call_id?: string }>);
+
+  assert.match(prompt, /list hermes sessions/);
+  assert.match(prompt, /search_files/);
+  assert.match(prompt, /found 3 session files/);
+  assert.notEqual(prompt, "TOOLS\n\nlist hermes sessions");
+});
+
 // ─── Full executor integration (Playwright mocked) ──────────────────────────
 //
 // Mirrors the mocking pattern already used in tests/unit/gemini-web.test.ts
@@ -211,7 +267,8 @@ async function withMockedGeminiBrowser<T>(
           waitForTimeout: async () => {},
           waitForSelector: async () => ({ click: async () => {} }),
           keyboard: {
-            type: async (text: string) => {
+            // Must match executor paste path (insertText), not per-char type({ delay }).
+            insertText: async (text: string) => {
               typedPrompt.value = text;
             },
             press: async () => {
@@ -238,8 +295,7 @@ async function withMockedGeminiBrowser<T>(
 }
 
 test("#7286: executor integration — tools[] present reaches tool_calls end to end", async () => {
-  const responseText =
-    '<tool>{"name":"get_weather","arguments":{"city":"Berlin"}}</tool>';
+  const responseText = '<tool>{"name":"get_weather","arguments":{"city":"Berlin"}}</tool>';
 
   await withMockedGeminiBrowser(responseText, async () => {
     const executor = new GeminiWebExecutor();

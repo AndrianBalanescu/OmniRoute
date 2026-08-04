@@ -120,7 +120,7 @@ test("Normalizes a bare __Secure-1PSID value before adding browser cookies", asy
             click: async () => {},
           }),
           keyboard: {
-            type: async () => {},
+            insertText: async () => {},
             press: async () => {},
           },
         }),
@@ -143,6 +143,56 @@ test("Normalizes a bare __Secure-1PSID value before adding browser cookies", asy
     assert.equal(addedCookies.length, 1);
     assert.equal(addedCookies[0].name, "__Secure-1PSID");
     assert.equal(addedCookies[0].value, "raw-psid-value");
+  } finally {
+    playwright.chromium.launch = originalLaunch;
+  }
+});
+
+test("Pastes the full prompt via keyboard.insertText (never per-char type with delay)", async () => {
+  const playwright = await import("playwright");
+  const originalLaunch = playwright.chromium.launch;
+  const hugePrompt = "x".repeat(50_000);
+  let insertTextArg: string | null = null;
+  let typeCalled = false;
+
+  playwright.chromium.launch = async () =>
+    ({
+      newContext: async () => ({
+        addCookies: async () => {},
+        newPage: async () => ({
+          on: () => {},
+          goto: async () => {},
+          waitForTimeout: async () => {},
+          waitForSelector: async () => ({
+            click: async () => {},
+          }),
+          keyboard: {
+            insertText: async (text: string) => {
+              insertTextArg = text;
+            },
+            type: async () => {
+              typeCalled = true;
+            },
+            press: async () => {},
+          },
+        }),
+      }),
+      close: async () => {},
+    }) as any;
+
+  try {
+    const executor = new GeminiWebExecutor();
+    await executor.execute({
+      model: "gemini-3.5-flash",
+      body: { messages: [{ role: "user", content: hugePrompt }], stream: false },
+      stream: false,
+      credentials: { apiKey: "test-psid" },
+      signal: AbortSignal.timeout(5000),
+      log: null,
+    });
+
+    assert.equal(insertTextArg, hugePrompt, "full prompt must be pasted in one shot");
+    assert.equal(typeCalled, false, "keyboard.type must not be used (delay:10 burned combo 120s)");
   } finally {
     playwright.chromium.launch = originalLaunch;
   }
