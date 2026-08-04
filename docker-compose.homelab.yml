@@ -1,0 +1,110 @@
+# ──────────────────────────────────────────────────────────────────────
+#  OmniRoute — Homelab always-on (stable Docker)
+# ──────────────────────────────────────────────────────────────────────
+#
+#  Stable instance on :20128 with host DATA_DIR (~/.omniroute).
+#  Optional host `npm run dev` uses :20228 + ~/.omniroute-dev (see
+#  scripts/homelab/start-dev.sh) so both can run at once without sharing SQLite.
+#
+#  Usage:
+#    docker compose -f docker-compose.homelab.yml up -d --build
+#    docker compose -f docker-compose.homelab.yml logs -f
+#    docker compose -f docker-compose.homelab.yml pull   # N/A (local build)
+#    docker compose -f docker-compose.homelab.yml up -d --build   # after verified update
+#    docker compose -f docker-compose.homelab.yml down
+#
+#  Image: runner-web (Playwright/Chromium) — needed for gemini-web / deepseek-web.
+# ──────────────────────────────────────────────────────────────────────
+
+x-homepage-running: &homepage-running
+  homepage.group: Running Containers
+
+services:
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: omniroute-redis
+    restart: unless-stopped
+    mem_limit: 256m
+    #     oom_score_adj: 0 (default)
+    labels:
+      <<: *homepage-running
+      homepage.name: OmniRoute Redis
+      homepage.icon: redis.png
+      homepage.description: Internal cache
+    volumes:
+      - omniroute-redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    # No host port publish — keep Redis internal to the compose network.
+
+  omniroute:
+    container_name: omniroute
+    labels:
+      <<: *homepage-running
+      homepage.name: OmniRoute
+      homepage.icon: mdi-routes
+      homepage.href: http://homelab:20128
+      homepage.description: AI gateway
+    depends_on:
+      redis:
+        condition: service_healthy
+    build:
+      context: .
+      target: runner-web
+      args:
+        OMNIROUTE_BASE_PATH: ${OMNIROUTE_BASE_PATH:-}
+    image: omniroute:homelab
+    restart: unless-stopped
+    mem_limit: 3g
+    oom_score_adj: -500
+    stop_grace_period: 40s
+    env_file: .env
+    environment:
+      - NODE_ENV=production
+      - REQUIRE_API_KEY=true
+      - HOSTNAME=0.0.0.0
+      - HOST=0.0.0.0
+      - OMNIROUTE_SERVER_HOST=0.0.0.0
+      - API_HOST=0.0.0.0
+      - PORT=20128
+      - DASHBOARD_PORT=20128
+      - API_PORT=20129
+      - LIVE_WS_PORT=20132
+      - LIVE_WS_HOST=0.0.0.0
+      - DATA_DIR=/app/data
+      - REDIS_URL=redis://redis:6379
+      - OMNIROUTE_MEMORY_MB=${OMNIROUTE_MEMORY_MB:-2048}
+      - BASE_URL=${BASE_URL:-http://100.70.158.21:20128}
+      - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-http://100.70.158.21:20128}
+      - LIVE_WS_ALLOWED_HOSTS=homelab,homelab.taild8b2e2.ts.net,100.70.158.21,192.168.1.205,localhost,127.0.0.1
+      - LIVE_WS_ALLOWED_ORIGINS=http://homelab:20128,http://homelab.taild8b2e2.ts.net:20128,http://100.70.158.21:20128,http://192.168.1.205:20128,http://localhost:20128,http://127.0.0.1:20128
+    ports:
+      - "0.0.0.0:20128:20128"
+      - "0.0.0.0:20129:20129"
+      - "0.0.0.0:20132:20132"
+    volumes:
+      # Real persistent data (SQLite, call_logs, logs) — single writer
+      - /home/ubuntu/.omniroute:/app/data
+    networks:
+      - default
+      # Reach Infinity embeddings (ai-embeddings) + whisper on the homelab proxy net
+      - homelab_proxy
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+networks:
+  homelab_proxy:
+    external: true
+    name: homelab_proxy
+
+volumes:
+  omniroute-redis-data:
+    name: omniroute-redis-data
