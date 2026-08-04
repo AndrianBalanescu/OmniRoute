@@ -1028,8 +1028,9 @@ export default function CombosPage() {
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", combos[index]?.id || `${index}`);
     if (e.currentTarget instanceof HTMLElement) {
+      const dragEl = e.currentTarget;
       setTimeout(() => {
-        e.currentTarget.style.opacity = "0.5";
+        if (dragEl.isConnected) dragEl.style.opacity = "0.5";
       }, 0);
     }
   };
@@ -2791,13 +2792,16 @@ function ComboFormModal({ isOpen, combo, onClose, onSave, activeProviders, combo
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", index.toString());
     // Make drag image slightly transparent
-    if (e.target) {
-      setTimeout(() => ((e.currentTarget as HTMLElement).style.opacity = "0.5"), 0);
+    const dragEl = e.currentTarget;
+    if (dragEl instanceof HTMLElement) {
+      setTimeout(() => {
+        if (dragEl.isConnected) dragEl.style.opacity = "0.5";
+      }, 0);
     }
   };
 
   const handleDragEnd = (e) => {
-    if (e.target) (e.currentTarget as HTMLElement).style.opacity = "1";
+    if (e.currentTarget instanceof HTMLElement) e.currentTarget.style.opacity = "1";
     setDragIndex(null);
     setDragOverIndex(null);
   };
