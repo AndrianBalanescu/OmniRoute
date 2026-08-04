@@ -39,6 +39,7 @@ import {
 } from "@omniroute/open-sse/services/autoCombo/builtinCatalog";
 import type { SyncedAvailableModel } from "@/lib/db/models";
 import { getAllActiveSyncedModels } from "@/lib/db/models/activeSyncedCatalog";
+import { getAllFusionModelNames } from "@/lib/fusion/fusionEngine";
 import { getModelCatalogCacheVersion } from "@/lib/db/readCache";
 import { getCompatibleFallbackModels } from "@/lib/providers/managedAvailableModels";
 import {
@@ -1521,6 +1522,17 @@ async function buildUnifiedModelsResponseCore(
           ...(visionFields || {}),
         });
       }
+    }
+
+    // Add native Fusion Engine virtual models
+    for (const fusionName of getAllFusionModelNames()) {
+      models.push({
+        id: fusionName,
+        object: "model",
+        created: timestamp,
+        owned_by: "omniroute-fusion",
+        type: "fusion",
+      });
     }
 
     // Filter by API key permissions if requested

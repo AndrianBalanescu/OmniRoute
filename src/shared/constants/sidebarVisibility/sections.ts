@@ -64,6 +64,15 @@ const OMNI_PROXY_ITEMS: readonly SidebarItemDefinition[] = [
     icon: "account_tree",
   },
   {
+    id: "fusion-studio",
+    href: "/dashboard/fusion",
+    i18nKey: "fusionStudio",
+    labelFallback: "OmniFuse Studio",
+    subtitleKey: "fusionStudioSubtitle",
+    subtitleFallback: "Multi-engine search synthesis",
+    icon: "bolt",
+  },
+  {
     id: "quota",
     href: "/dashboard/quota",
     i18nKey: "providerQuota",
