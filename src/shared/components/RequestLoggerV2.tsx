@@ -1,3 +1,10 @@
+/**
+ * @file RequestLoggerV2.tsx
+ * @description Dashboard request/logs table with provider filters, chips, and detail view.
+ *
+ * @changes
+ * - [2026-07-29] [Cursor Grok 4.5] - Truncate provider chips/badges/dropdowns; ignore oversized legacy provider labels
+ */
 "use client";
 
 import {
@@ -855,7 +862,11 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
     const uniqueProviders = useMemo(
       () =>
         [
-          ...new Set(sourceLogsForDropdowns.map((l) => l.provider).filter((p) => p && p !== "-")),
+          ...new Set(
+            sourceLogsForDropdowns
+              .map((l) => l.provider)
+              .filter((p) => p && p !== "-" && String(p).length <= 120)
+          ),
         ].sort(),
       [sourceLogsForDropdowns]
     );
@@ -973,9 +984,11 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
             {uniqueProviders.map((p) => {
               const compatLabel = getProviderDisplayLabel(p, providerNodes);
               const pc = PROVIDER_COLORS[p];
+              const raw = compatLabel || pc?.label || p.toUpperCase();
+              const optionLabel = raw.length > 40 ? `${raw.slice(0, 39)}…` : raw;
               return (
-                <option key={p} value={p}>
-                  {compatLabel || pc?.label || p.toUpperCase()}
+                <option key={p} value={p} title={raw}>
+                  {optionLabel}
                 </option>
               );
             })}
@@ -1156,12 +1169,17 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
               label: compatLabel || p.toUpperCase(),
             };
             const displayLabel = compatLabel || pc.label;
+            // Hard cap chip text — corrupted/legacy call_logs rows used to store
+            // entire combo model catalogs in `provider` and blew up this row.
+            const chipLabel =
+              displayLabel.length > 28 ? `${displayLabel.slice(0, 27)}…` : displayLabel;
             const isActive = selectedProvider === p;
             return (
               <button
                 key={p}
+                title={displayLabel}
                 onClick={() => setSelectedProvider(isActive ? "" : p)}
-                className={`px-3 py-1 rounded-full text-xs font-bold uppercase border transition-all ${
+                className={`max-w-[14rem] truncate px-3 py-1 rounded-full text-xs font-bold uppercase border transition-all ${
                   isActive
                     ? "border-white/40 ring-1 ring-white/20"
                     : "border-transparent opacity-70 hover:opacity-100"
@@ -1171,7 +1189,7 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
                   color: isActive ? pc.text : pc.bg,
                 }}
               >
-                {displayLabel}
+                {chipLabel}
               </button>
             );
           })}
@@ -1486,15 +1504,18 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
                           </td>
                         )}
                         {visibleColumns.provider && (
-                          <td className="px-3 py-2">
+                          <td className="px-3 py-2 max-w-[10rem]">
                             <span
-                              className="inline-block px-2 py-0.5 rounded text-[9px] font-bold uppercase"
+                              className="inline-block max-w-full truncate px-2 py-0.5 rounded text-[9px] font-bold uppercase"
+                              title={providerLabel}
                               style={{
                                 backgroundColor: providerColor.bg,
                                 color: providerColor.text,
                               }}
                             >
-                              {providerLabel}
+                              {providerLabel.length > 28
+                                ? `${providerLabel.slice(0, 27)}…`
+                                : providerLabel}
                             </span>
                           </td>
                         )}
