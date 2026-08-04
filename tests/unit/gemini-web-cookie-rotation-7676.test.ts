@@ -28,7 +28,10 @@ test("#7676: GeminiWebExecutor persists rotated __Secure-1PSIDTS/__Secure-1PSIDC
         addCookies: async () => {},
         cookies: async () => rotatedJarCookies,
         newPage: async () => ({
-          on: (event: string, handler: (resp: { url: () => string; text: () => Promise<string> }) => void) => {
+          on: (
+            event: string,
+            handler: (resp: { url: () => string; text: () => Promise<string> }) => void
+          ) => {
             if (event === "response") {
               const body =
                 ")]}'\n" +
@@ -51,7 +54,7 @@ test("#7676: GeminiWebExecutor persists rotated __Secure-1PSIDTS/__Secure-1PSIDC
           goto: async () => {},
           waitForTimeout: async () => {},
           waitForSelector: async () => ({ click: async () => {} }),
-          keyboard: { type: async () => {}, press: async () => {} },
+          keyboard: { insertText: async () => {}, press: async () => {} },
         }),
       }),
       close: async () => {},

@@ -14,11 +14,6 @@
       "count": 12
     }
   },
-  "open-sse/executors/gemini-web.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    }
-  },
   "open-sse/executors/github.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 14
@@ -2481,7 +2476,7 @@
   },
   "tests/unit/gemini-web.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 8
+      "count": 9
     }
   },
   "tests/unit/github-claude-reasoning-effort-granular.test.ts": {
