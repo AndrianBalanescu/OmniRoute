@@ -52,6 +52,7 @@ import {
   buildSubscriptionQuotaFallback,
   buildWeeklyQuotaFallback,
   buildSessionQuotaFallback,
+  buildAlibabaTokenPlanQuotaFallback,
 } from "./quotaTextCooldowns.ts";
 import { parseDayGranularityResetMs, shouldPreserveQuotaSignals } from "./quotaResetParsing.ts";
 import { evictLockoutOverflow } from "./accountFallback/lockoutEviction.ts";
@@ -1598,6 +1599,13 @@ export function checkFallbackError(
     // gate.
     const sessionResult = buildSessionQuotaFallback(errorStr);
     if (sessionResult) return sessionResult;
+
+    // Alibaba Token Plan 5-hour rollover cap — same ungated sibling pattern as
+    // weekly (#3709) / session (#7071): ali-tok is an apikey provider, so the
+    // oauth-only shouldUseQuotaSignal gate would otherwise skip it and the
+    // combo would hammer the exhausted plan every few seconds for the window.
+    const alibabaResult = buildAlibabaTokenPlanQuotaFallback(errorStr);
+    if (alibabaResult) return alibabaResult;
 
     const quotaResetHintMs = parseRetryFromErrorText(errorStr);
     if (
