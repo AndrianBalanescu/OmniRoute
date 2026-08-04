@@ -50,6 +50,7 @@ import {
   type SyncedAvailableModel,
 } from "@/lib/db/models";
 import { getAllActiveSyncedModels } from "@/lib/db/models/activeSyncedCatalog";
+import { getAllFusionModelNames } from "@/lib/fusion/fusionEngine";
 import { getModelCatalogCacheVersion } from "@/lib/db/readCache";
 import { getCompatibleFallbackModels } from "@/lib/providers/managedAvailableModels";
 import {
@@ -1839,6 +1840,17 @@ async function buildUnifiedModelsResponseCore(
         // #9147: per-connection fallback walk — yield periodically.
         await maybeYieldCatalogBuild();
       }
+    }
+
+    // Add native Fusion Engine virtual models
+    for (const fusionName of getAllFusionModelNames()) {
+      models.push({
+        id: fusionName,
+        object: "model",
+        created: timestamp,
+        owned_by: "omniroute-fusion",
+        type: "fusion",
+      });
     }
 
     // Filter by API key permissions if requested
