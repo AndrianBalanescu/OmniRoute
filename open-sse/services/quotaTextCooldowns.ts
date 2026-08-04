@@ -160,3 +160,65 @@ export function buildSessionQuotaFallback(errorStr: string): QuotaTextFallback |
     reason: RateLimitReason.QUOTA_EXHAUSTED,
   };
 }
+
+// ─── Alibaba token-plan 5-hour rollover cap ─────────────────────────────────
+//
+// Alibaba's "Token Plan" (ali-tok / token-plan.*.maas.aliyuncs.com) enforces a
+// rolling 5-hour token cap. On cap the upstream returns 429 with a body like:
+//   "Your token-plan 5-hour quota has been exhausted. The quota will reset at
+//    08-04 04:11:00 UTC."
+//
+// Same root cause as the Ollama weekly/session gaps (#3709/#7071): ali-tok is
+// an apikey-category provider, so the oauth-only `shouldUseQuotaSignal` gate in
+// checkFallbackError skips the generic subscription-text branch, and none of
+// the weekly/session/subscription classifiers recognize "token-plan ... quota".
+// Without a dedicated UNGATED check the 429 fell through to the generic ~1-2s
+// backoff and combo routing hammered the exhausted plan every few seconds for
+// the entire 5h window (production: ~900 req/24h, hundreds of repeat 429s).
+//
+// The message carries an explicit absolute reset ("08-04 04:11:00 UTC",
+// MM-DD HH:MM:SS, no year). Honor it exactly so the plan stays cool until the
+// real reset; when it can't be parsed, fall back to a 5h cooldown matching the
+// rollover window. `token-plan` is distinctive to Alibaba, so the classifier is
+// narrowly scoped and cannot fire for unrelated "quota" wording.
+const ALIBABA_TOKEN_PLAN_COOLDOWN_MS = 5 * 60 * 60 * 1000; // 5 hours
+const ALIBABA_TOKEN_PLAN_RESET_RE =
+  /\b(?:quota will reset at|will reset at|reset at)\s+(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(?:utc|gmt)?\b/i;
+
+export function isAlibabaTokenPlanQuotaText(lower: string): boolean {
+  return lower.includes("token-plan") && (lower.includes("quota") || lower.includes("exhausted"));
+}
+
+/** Parse Alibaba's "MM-DD HH:MM:SS UTC" absolute reset (no year) into ms from now. */
+export function parseAlibabaTokenPlanResetMs(
+  errorStr: string,
+  nowMs: number = Date.now()
+): number | null {
+  const m = ALIBABA_TOKEN_PLAN_RESET_RE.exec(errorStr);
+  if (!m) return null;
+  const year = new Date(nowMs).getUTCFullYear();
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  const hour = Number(m[3]);
+  const minute = Number(m[4]);
+  const sec = Number(m[5] || 0);
+  const baseTs = Date.UTC(year, month - 1, day, hour, minute, sec);
+  // The rollover is a near-future reset (within the rolling 5h window, i.e. same
+  // or next UTC day). If the stamped MM-DD/time for the current year is already
+  // in the past the message is stale for this window — return null so the caller
+  // falls back to the 5h cooldown rather than guessing a year of lockout.
+  if (baseTs <= nowMs) return null;
+  const waitMs = baseTs - nowMs;
+  return waitMs > 0 ? waitMs : null;
+}
+
+export function buildAlibabaTokenPlanQuotaFallback(errorStr: string): QuotaTextFallback | null {
+  if (!isAlibabaTokenPlanQuotaText(errorStr.toLowerCase())) return null;
+  const resetMs = parseAlibabaTokenPlanResetMs(errorStr);
+  return {
+    shouldFallback: true,
+    cooldownMs: resetMs ?? ALIBABA_TOKEN_PLAN_COOLDOWN_MS,
+    reason: RateLimitReason.QUOTA_EXHAUSTED,
+    ...(resetMs ? { usedUpstreamRetryHint: true, quotaResetHintMs: resetMs } : {}),
+  };
+}
