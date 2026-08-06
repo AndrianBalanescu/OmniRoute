@@ -15,7 +15,7 @@ import Input from "./Input";
 
 type RaycastAuthModalProps = {
   isOpen: boolean;
-  reauthConnection?: { id: string } | null;
+  reauthConnection?: unknown;
   onSuccess?: () => void;
   onClose: () => void;
 };
