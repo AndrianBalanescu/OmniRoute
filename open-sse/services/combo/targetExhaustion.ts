@@ -20,6 +20,7 @@ import {
   hasPerModelQuota,
   isProviderExhaustedReason,
 } from "../accountFallback.ts";
+import { persistQuotaExhaustionSnapshot } from "../quotaExhaustionSnapshot.ts";
 import { RateLimitReason } from "../../config/constants.ts";
 import { isProviderCircuitOpenResult, isRequestScopedUpstreamFailure } from "./comboPredicates.ts";
 import { isCloudflareFingerprintRejection } from "../errorClassifier.ts";
@@ -80,6 +81,11 @@ export function applyComboTargetExhaustion(
 ): boolean {
   const { result, sets, log, tag, errorText, structuredError } = opts;
   const provider = target.provider;
+
+  // Persist a parsed quota-exhausted 429's reset stamp so the pre-route pre-screen
+  // (resolveQuotaExhaustionCutoffForTarget snapshot fetcher) can skip this node
+  // until reset instead of re-paying the 429. Fail-open + idempotent.
+  persistQuotaExhaustionSnapshot(provider, target.connectionId ?? undefined, errorText);
 
   // #8133/#8137: auth-level failures (401/403) mean that connection's credentials are bad.
   // Split out to keep applyComboTargetExhaustion under the complexity ceiling.
