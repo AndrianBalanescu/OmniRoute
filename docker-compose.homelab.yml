@@ -57,7 +57,7 @@ services:
       target: runner-web
       args:
         OMNIROUTE_BASE_PATH: ${OMNIROUTE_BASE_PATH:-}
-        OMNIROUTE_BUILD_MEMORY_MB: ${OMNIROUTE_BUILD_MEMORY_MB:-4096}
+        OMNIROUTE_BUILD_MEMORY_MB: ${OMNIROUTE_BUILD_MEMORY_MB:-8192}
         OMNIROUTE_USE_TURBOPACK: ${OMNIROUTE_USE_TURBOPACK:-0}
     image: omniroute:homelab
     restart: unless-stopped
