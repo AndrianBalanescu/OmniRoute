@@ -61,7 +61,8 @@ services:
         OMNIROUTE_USE_TURBOPACK: ${OMNIROUTE_USE_TURBOPACK:-0}
     image: omniroute:homelab
     restart: unless-stopped
-    mem_limit: 3g
+    mem_limit: 5g
+    memswap_limit: 7g
     oom_score_adj: -500
     stop_grace_period: 40s
     env_file: .env
