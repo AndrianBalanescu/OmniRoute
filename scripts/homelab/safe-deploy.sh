@@ -162,7 +162,7 @@ stop_heavy_containers() {
     if [[ "$running" == "true" ]]; then
       STOPPED_CONTAINERS+=("$container")
       log "stopping temporary heavy service: $container"
-      run docker stop --time 20 "$container"
+      run docker stop --timeout 20 "$container"
     fi
   done
 }
@@ -254,7 +254,6 @@ capture_old_image
 BUILD_ARGS=(
   docker compose -f "$COMPOSE_FILE" build
   --memory "$BUILD_MEMORY"
-  --memory-swap "$BUILD_SWAP"
   --build-arg "OMNIROUTE_BUILD_MEMORY_MB=$BUILD_HEAP_MB"
   --build-arg "OMNIROUTE_USE_TURBOPACK=$USE_TURBOPACK"
 )
