@@ -20,6 +20,7 @@ import {
   type QuotaInfo,
 } from "../quotaPreflight.ts";
 import { getCachedProviderConnectionById } from "@/lib/localDb";
+import { getLatestQuotaSnapshotsForConnection } from "@/lib/db/quotaSnapshots";
 import {
   resolveResilienceSettings,
   type ResilienceSettings,
@@ -91,6 +92,38 @@ export function buildAutoQuotaThresholds(
  * breaker; a blocked result only means "skip this one connection", leaving
  * every sibling connection/model for the same provider fully eligible.
  */
+/**
+ * Snapshot-backed quota fetcher — used as a fallback for providers that have no
+ * live usage fetcher (notably custom `openai-compatible-*` nodes like ali-tok).
+ * Reads the latest persisted `quota_snapshots` rows for the connection and reports
+ * limit-reached when any window is known-exhausted until a future reset. This is
+ * what turns "we saw one exhausted 429 with a reset stamp" into a proactive pre-route
+ * skip, so routing never re-pays the 429 for the rest of the window. Fail-open.
+ */
+async function snapshotBackedQuotaFetcher(connectionId: string): Promise<QuotaInfo | null> {
+  try {
+    const nowMs = Date.now();
+    const rows = getLatestQuotaSnapshotsForConnection(connectionId);
+    for (const row of rows) {
+      // Runtime rows are camelCased by rowToCamel despite the snake_case type.
+      const r = row as unknown as Record<string, unknown>;
+      if (!r.isExhausted || typeof r.nextResetAt !== "string") continue;
+      const rowReset = Date.parse(r.nextResetAt);
+      if (!Number.isFinite(rowReset) || rowReset <= nowMs) continue; // stale reset → re-check live
+      return {
+        used: 1,
+        total: 1,
+        percentUsed: 1,
+        resetAt: r.nextResetAt,
+        limitReached: true,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveQuotaExhaustionCutoffForTarget(
   provider: string,
   connectionId: string | undefined,
@@ -103,7 +136,7 @@ export async function resolveQuotaExhaustionCutoffForTarget(
     (resilienceSettings ?? resolveResilienceSettings(null))?.quotaPreflight?.enabled === true;
   if (!quotaCutoffEnabled || !provider || !connectionId) return { blocked: false };
 
-  const fetcher = getQuotaFetcher(provider);
+  const fetcher = getQuotaFetcher(provider) ?? snapshotBackedQuotaFetcher;
   if (!fetcher) return { blocked: false };
 
   let connection: Record<string, unknown> | undefined;
