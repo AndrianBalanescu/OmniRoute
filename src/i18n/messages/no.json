@@ -6303,6 +6303,8 @@
     "cached": "Bufret",
     "reasoning": "Resonnement",
     "cacheCreation": "Oppretting av cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Egendefinerte priser",
     "databaseSize": "Databasestørrelse",
     "backupDb": "Sikkerhetskopier database",

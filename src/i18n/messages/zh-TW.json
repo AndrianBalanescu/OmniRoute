@@ -6304,6 +6304,8 @@
     "cached": "快取",
     "reasoning": "推理",
     "cacheCreation": "快取建立",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "定製定價",
     "databaseSize": "資料庫大小",
     "backupDb": "備份資料庫",

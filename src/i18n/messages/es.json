@@ -6303,6 +6303,8 @@
     "cached": "En caché",
     "reasoning": "Razonamiento",
     "cacheCreation": "Creación de caché",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Precios personalizados",
     "databaseSize": "Tamaño de la base de datos",
     "backupDb": "Base de datos de respaldo",

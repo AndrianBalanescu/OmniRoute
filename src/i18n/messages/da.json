@@ -6303,6 +6303,8 @@
     "cached": "Cachelagret",
     "reasoning": "Ræsonnement",
     "cacheCreation": "Oprettelse af cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Tilpasset prisfastsættelse",
     "databaseSize": "Database størrelse",
     "backupDb": "Backup database",

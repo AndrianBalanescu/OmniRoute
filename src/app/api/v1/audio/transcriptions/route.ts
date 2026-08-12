@@ -22,6 +22,9 @@ import { generateRequestId } from "@/shared/utils/requestId";
 import { getComboByName, getCombos, getDatabaseSettings } from "@/lib/localDb";
 import { handleComboChat } from "@omniroute/open-sse/services/combo.ts";
 import { log } from "@omniroute/open-sse/utils/logger.ts";
+import { getAudioDurationSeconds } from "@omniroute/open-sse/utils/audioDuration.ts";
+import { calculateModalCost } from "@/lib/usage/costCalculator";
+import { saveRequestUsage } from "@/lib/usageDb";
 
 /**
  * Copy a multipart body, swapping only the `model` field. Combo fan-out needs one
@@ -57,7 +60,8 @@ export async function OPTIONS() {
 async function transcribeWithModel(
   formData: FormData,
   modelStr: string,
-  startTime: number
+  startTime: number,
+  apiKeyInfo?: { id?: string; name?: string } | null
 ): Promise<Response> {
   // Provider nodes eligible for transcription: this route's own audio type plus
   // general chat/responses gateways. Remote hosts are opt-in (default OFF).
@@ -103,14 +107,42 @@ async function transcribeWithModel(
   });
   if (response?.ok) {
     await clearRecoveredProviderState(credentials);
-    // No text body / playback duration available from the multipart upload, so
-    // per-second pricing cannot be applied → cost 0 (ADD-only headers, body intact).
+    // Extract real audio duration from the uploaded file (WAV exact, MP3
+    // best-effort) so per-second pricing/usage is possible — the multipart
+    // upload carries no duration header, which previously forced cost 0 and
+    // left STT untracked in usage analytics.
+    const file = formData.get("file");
+    const seconds =
+      file instanceof Blob ? await getAudioDurationSeconds(file).catch(() => null) : null;
+    const costUsd = await calculateModalCost("audio", provider, resolvedModel || modelStr, {
+      ...(seconds != null ? { seconds } : {}),
+    });
+
+    // No text body available from the multipart upload, but duration is — attach
+    // ADD-only meta headers without touching the response body.
     response = attachOmniRouteMetaToResponse(response, {
       provider,
-      model: resolvedModel,
-      costUsd: 0,
+      model: resolvedModel || modelStr,
+      costUsd,
       latencyMs: Date.now() - startTime,
       requestId: generateRequestId(),
+    });
+
+    // Persist to usage_history so STT traffic shows up in usage analytics and
+    // the per-api-key usage counter. Billed by audio seconds; tokens are 0.
+    saveRequestUsage({
+      provider,
+      model: `${provider}/${resolvedModel || modelStr}`,
+      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      status: "200",
+      success: true,
+      latencyMs: Date.now() - startTime,
+      apiKeyId: apiKeyInfo?.id || undefined,
+      apiKeyName: apiKeyInfo?.name || undefined,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+      endpoint: "/v1/audio/transcriptions",
+    }).catch((err) => {
+      console.error("Failed to save STT usage stats:", err.message);
     });
   }
   return response;
@@ -139,6 +171,7 @@ export async function POST(request) {
   // Enforce API key policies (model restrictions + budget limits)
   const policy = await enforceApiKeyPolicy(request, modelStr);
   if (policy.rejection) return policy.rejection;
+  const apiKeyInfo = policy.apiKeyInfo as { id?: string; name?: string } | null;
 
   // A bare name (no "/") may be a combo. /v1/models advertises combos, and chat and
   // embeddings both resolve them — resolving here too keeps the catalog honest and
@@ -160,7 +193,12 @@ export async function POST(request) {
           body: { model: modelStr } as any,
           combo: combo as any,
           handleSingleModel: async (_reqBody: any, targetModelStr: string) =>
-            transcribeWithModel(withModel(formData, targetModelStr), targetModelStr, startTime),
+            transcribeWithModel(
+              withModel(formData, targetModelStr),
+              targetModelStr,
+              startTime,
+              apiKeyInfo
+            ),
           isModelAvailable: undefined,
           log,
           settings,
@@ -174,5 +212,5 @@ export async function POST(request) {
     }
   }
 
-  return transcribeWithModel(formData, modelStr, startTime);
+  return transcribeWithModel(formData, modelStr, startTime, apiKeyInfo);
 }

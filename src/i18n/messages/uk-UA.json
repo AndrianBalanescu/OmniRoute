@@ -6303,6 +6303,8 @@
     "cached": "Кешовано",
     "reasoning": "Міркування",
     "cacheCreation": "Створення кешу",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Спеціальне ціноутворення",
     "databaseSize": "Розмір бази даних",
     "backupDb": "Резервне копіювання бази даних",

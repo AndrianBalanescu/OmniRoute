@@ -6303,6 +6303,8 @@
     "cached": "キャッシュされた",
     "reasoning": "推論",
     "cacheCreation": "キャッシュの作成",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "カスタム価格設定",
     "databaseSize": "データベースのサイズ",
     "backupDb": "バックアップデータベース",

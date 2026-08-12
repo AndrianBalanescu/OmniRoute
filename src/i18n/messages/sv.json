@@ -6303,6 +6303,8 @@
     "cached": "Cachad",
     "reasoning": "Resonemang",
     "cacheCreation": "Skapande av cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Anpassad prissättning",
     "databaseSize": "Databasstorlek",
     "backupDb": "Säkerhetskopiera databas",
