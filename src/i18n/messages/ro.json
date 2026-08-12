@@ -6303,6 +6303,8 @@
     "cached": "În cache",
     "reasoning": "Raționamentul",
     "cacheCreation": "Creare cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Prețuri personalizate",
     "databaseSize": "Dimensiunea bazei de date",
     "backupDb": "Backup baze de date",

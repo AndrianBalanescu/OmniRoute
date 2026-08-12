@@ -14,7 +14,6 @@ import {
 } from "@/shared/constants/upstreamHeaders";
 import { MAX_TIMER_TIMEOUT_MS } from "@/shared/utils/runtimeTimeouts";
 
-
 export const pricingFieldsSchema = z
   .object({
     input: z.number().min(0).optional(),
@@ -22,6 +21,11 @@ export const pricingFieldsSchema = z
     cached: z.number().min(0).optional(),
     reasoning: z.number().min(0).optional(),
     cache_creation: z.number().min(0).optional(),
+    // Audio modalities — per-second (transcription/STT) and per-character
+    // (TTS). Read by computeAudioCost in costCalculator; allow a manual
+    // override when a model has no market rate.
+    input_cost_per_second: z.number().min(0).optional(),
+    input_cost_per_character: z.number().min(0).optional(),
   })
   .strict();
 

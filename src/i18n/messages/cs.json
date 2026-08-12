@@ -6303,6 +6303,8 @@
     "cached": "V mezipaměti",
     "reasoning": "Reasoning",
     "cacheCreation": "Vytvoření mezipaměti",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Vlastní ceny",
     "databaseSize": "Velikost databáze",
     "backupDb": "Záloha databáze",

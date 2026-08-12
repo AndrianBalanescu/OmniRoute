@@ -17,6 +17,7 @@ import {
 } from "@/app/api/v1/_shared/rateLimit";
 import { attachOmniRouteMetaToResponse } from "@/domain/omnirouteResponseMeta";
 import { calculateModalCost } from "@/lib/usage/costCalculator";
+import { saveRequestUsage } from "@/lib/usageDb";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { getClientIpFromRequest } from "@/lib/ipUtils";
 
@@ -54,6 +55,7 @@ async function postHandler(request, context) {
   // Enforce API key policies (model restrictions + budget limits)
   const policy = await enforceApiKeyPolicy(request, body.model);
   if (policy.rejection) return policy.rejection;
+  const apiKeyInfo = policy.apiKeyInfo;
 
   // Provider nodes eligible for speech: this route's own audio type plus general
   // chat/responses gateways. Remote hosts are opt-in (default OFF).
@@ -105,6 +107,24 @@ async function postHandler(request, context) {
       costUsd,
       latencyMs: Date.now() - startTime,
       requestId: generateRequestId(),
+    });
+
+    // Persist to usage_history so TTS traffic shows up in usage analytics and
+    // the per-api-key usage counter (mirrors the chat/embedding paths). Billed
+    // by input characters; tokens are 0 for audio.
+    saveRequestUsage({
+      provider,
+      model: `${provider}/${resolvedModel || body.model}`,
+      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      status: "200",
+      success: true,
+      latencyMs: Date.now() - startTime,
+      apiKeyId: (apiKeyInfo as { id?: string } | null | undefined)?.id || undefined,
+      apiKeyName: (apiKeyInfo as { name?: string } | null | undefined)?.name || undefined,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+      endpoint: "/v1/audio/speech",
+    }).catch((err) => {
+      console.error("Failed to save TTS usage stats:", err.message);
     });
   }
   return response;

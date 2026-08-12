@@ -6303,6 +6303,8 @@
     "cached": "Đã lưu trong cache",
     "reasoning": "Lập luận",
     "cacheCreation": "Tạo cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Giá tùy chỉnh",
     "databaseSize": "Kích thước cơ sở dữ liệu",
     "backupDb": "Sao lưu cơ sở dữ liệu",

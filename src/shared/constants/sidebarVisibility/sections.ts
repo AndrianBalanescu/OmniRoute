@@ -383,6 +383,13 @@ const LOGS_GROUP: SidebarItemGroup = {
   titleFallback: "Logs",
   items: [
     {
+      id: "logs-overview",
+      href: "/dashboard/logs/overview",
+      i18nKey: "logsOverview",
+      subtitleKey: "logsOverviewSubtitle",
+      icon: "dashboard_customize",
+    },
+    {
       id: "logs",
       href: "/dashboard/logs",
       i18nKey: "logs",

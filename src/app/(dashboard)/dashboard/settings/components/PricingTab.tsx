@@ -16,13 +16,23 @@ type SortKey = "modelsDesc" | "coverageDesc" | "coverageAsc" | "nameAsc";
 const INITIAL_VISIBLE = 20;
 const VISIBLE_INCREMENT = 30;
 
-const PRICING_FIELDS = ["input", "output", "cached", "reasoning", "cache_creation"] as const;
+const PRICING_FIELDS = [
+  "input",
+  "output",
+  "cached",
+  "reasoning",
+  "cache_creation",
+  "input_cost_per_second",
+  "input_cost_per_character",
+] as const;
 const FIELD_LABEL_KEYS: Record<(typeof PRICING_FIELDS)[number], string> = {
   input: "input",
   output: "output",
   cached: "cached",
   reasoning: "reasoning",
   cache_creation: "cacheCreation",
+  input_cost_per_second: "inputCostPerSecond",
+  input_cost_per_character: "inputCostPerCharacter",
 };
 
 type PricingField = (typeof PRICING_FIELDS)[number];

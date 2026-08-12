@@ -6304,6 +6304,8 @@
     "cached": "缓存",
     "reasoning": "推理",
     "cacheCreation": "缓存创建",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "定制定价",
     "databaseSize": "数据库大小",
     "backupDb": "备份数据库",

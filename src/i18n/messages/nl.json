@@ -6303,6 +6303,8 @@
     "cached": "In cache opgeslagen",
     "reasoning": "Redenering",
     "cacheCreation": "Cache-creatie",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Aangepaste prijzen",
     "databaseSize": "Databasegrootte",
     "backupDb": "Back-updatabase",
