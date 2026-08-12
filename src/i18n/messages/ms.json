@@ -6676,6 +6676,8 @@
     "cached": "Dicache",
     "reasoning": "Penaakulan",
     "cacheCreation": "Penciptaan Cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Harga Tersuai",
     "databaseSize": "Saiz Pangkalan Data",
     "backupDb": "Pangkalan Data Sandaran",

@@ -6676,6 +6676,8 @@
     "cached": "Di-cache",
     "reasoning": "Penalaran",
     "cacheCreation": "Pembuatan Cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Harga Khusus",
     "databaseSize": "Ukuran Basis Data",
     "backupDb": "Basis Data Cadangan",

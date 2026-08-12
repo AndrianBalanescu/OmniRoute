@@ -6676,6 +6676,8 @@
     "cached": "कैश्ड",
     "reasoning": "तर्क",
     "cacheCreation": "कैश निर्माण",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "कस्टम मूल्य निर्धारण",
     "databaseSize": "डेटाबेस का आकार",
     "backupDb": "बैकअप डेटाबेस",

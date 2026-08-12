@@ -6676,6 +6676,8 @@
     "cached": "שמור במטמון",
     "reasoning": "נימוק",
     "cacheCreation": "יצירת מטמון",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "תמחור מותאם אישית",
     "databaseSize": "גודל מסד נתונים",
     "backupDb": "מסד נתונים גיבוי",

@@ -6676,6 +6676,8 @@
     "cached": "Кеширано",
     "reasoning": "Разсъждение",
     "cacheCreation": "Създаване на кеш памет",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Персонализирано ценообразуване",
     "databaseSize": "Размер на базата данни",
     "backupDb": "Архивиране на база данни",

@@ -6676,6 +6676,8 @@
     "cached": "مخبأة",
     "reasoning": "المنطق",
     "cacheCreation": "إنشاء ذاكرة التخزين المؤقت",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "التسعير المخصص",
     "databaseSize": "حجم قاعدة البيانات",
     "backupDb": "قاعدة بيانات النسخ الاحتياطي",

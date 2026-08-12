@@ -6676,6 +6676,8 @@
     "cached": "Vo vyrovnávacej pamäti",
     "reasoning": "Zdôvodnenie",
     "cacheCreation": "Vytvorenie vyrovnávacej pamäte",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Vlastné ceny",
     "databaseSize": "Veľkosť databázy",
     "backupDb": "Zálohovanie databázy",

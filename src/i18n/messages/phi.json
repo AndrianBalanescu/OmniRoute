@@ -6676,6 +6676,8 @@
     "cached": "Naka-cache",
     "reasoning": "Pangangatwiran",
     "cacheCreation": "Paglikha ng Cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Custom na Pagpepresyo",
     "databaseSize": "Laki ng Database",
     "backupDb": "Backup na Database",

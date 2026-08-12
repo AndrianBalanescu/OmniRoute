@@ -6676,6 +6676,8 @@
     "cached": "Z cache",
     "reasoning": "Reasoning",
     "cacheCreation": "Tworzenie cache",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Cennik niestandardowy",
     "databaseSize": "Rozmiar bazy danych",
     "backupDb": "Kopia zapasowa bazy danych",

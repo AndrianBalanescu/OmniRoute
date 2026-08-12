@@ -6676,6 +6676,8 @@
     "cached": "Кэшированный",
     "reasoning": "Рассуждение",
     "cacheCreation": "Создание кэша",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Индивидуальные цены",
     "databaseSize": "Размер базы данных",
     "backupDb": "Резервное копирование базы данных",

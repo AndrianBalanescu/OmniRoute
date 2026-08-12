@@ -6676,6 +6676,8 @@
     "cached": "Gyorsítótárban",
     "reasoning": "okoskodás",
     "cacheCreation": "Gyorsítótár létrehozása",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Egyedi árképzés",
     "databaseSize": "Adatbázis mérete",
     "backupDb": "Biztonsági mentési adatbázis",

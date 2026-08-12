@@ -6676,6 +6676,8 @@
     "cached": "แคช",
     "reasoning": "การใช้เหตุผล",
     "cacheCreation": "การสร้างแคช",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "ราคาที่กำหนดเอง",
     "databaseSize": "ขนาดฐานข้อมูล",
     "backupDb": "ฐานข้อมูลสำรอง",

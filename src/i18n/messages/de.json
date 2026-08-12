@@ -6676,6 +6676,8 @@
     "cached": "Zwischengespeichert",
     "reasoning": "Begründung",
     "cacheCreation": "Cache-Erstellung",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Individuelle Preise",
     "databaseSize": "Datenbankgröße",
     "backupDb": "Backup-Datenbank",

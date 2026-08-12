@@ -6676,6 +6676,8 @@
     "cached": "캐시됨",
     "reasoning": "추론",
     "cacheCreation": "캐시 생성",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "맞춤형 가격",
     "databaseSize": "데이터베이스 크기",
     "backupDb": "데이터베이스 백업",

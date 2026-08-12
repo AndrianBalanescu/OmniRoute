@@ -6676,6 +6676,8 @@
     "cached": "Önbellekli",
     "reasoning": "Akıl Yürütme",
     "cacheCreation": "Önbellek Yazımı",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Özel Fiyatlandırma",
     "databaseSize": "Veritabanı Boyutu",
     "backupDb": "Veritabanını Yedekle",

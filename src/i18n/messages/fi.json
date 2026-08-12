@@ -6676,6 +6676,8 @@
     "cached": "Välimuistissa",
     "reasoning": "Päättely",
     "cacheCreation": "Välimuistin luominen",
+    "inputCostPerSecond": "Per Second",
+    "inputCostPerCharacter": "Per Character",
     "customPricing": "Mukautettu hinnoittelu",
     "databaseSize": "Tietokannan koko",
     "backupDb": "Varmuuskopiointitietokanta",
