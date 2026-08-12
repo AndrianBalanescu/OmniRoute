@@ -55,6 +55,7 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "logs-proxy",
   "logs-console",
   "logs-timeline",
+  "logs-overview",
   "logs-activity",
   "health",
   "runtime",

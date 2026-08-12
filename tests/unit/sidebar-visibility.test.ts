@@ -20,6 +20,7 @@ test("system sidebar items: monitoring has activity at top then logs/audit/syste
     items.map((item) => item.id),
     [
       "activity",
+      "logs-overview",
       "logs",
       "logs-proxy",
       "logs-console",

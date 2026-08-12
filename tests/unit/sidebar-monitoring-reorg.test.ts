@@ -94,7 +94,13 @@ test("monitoring logs group contains logs, logs-proxy, logs-console, logs-timeli
   assert.ok(logsGroup, "logs group must exist in monitoring");
 
   const itemIds = logsGroup.items.map((i) => i.id);
-  assert.deepEqual(itemIds, ["logs", "logs-proxy", "logs-console", "logs-timeline"]);
+  assert.deepEqual(itemIds, [
+    "logs-overview",
+    "logs",
+    "logs-proxy",
+    "logs-console",
+    "logs-timeline",
+  ]);
 });
 
 test("monitoring system group contains health, runtime, and connection resilience", () => {

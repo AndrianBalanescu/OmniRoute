@@ -15,6 +15,52 @@ export const DEFAULT_PRICING_INFERENCE = {
       cache_creation: 2.0,
     },
   },
+  // OllamaCloud — consumer subscription gateway. Billed at a flat monthly plan,
+  // NOT flat-rate-listed (isFlatRateProvider), so analytics report the market
+  // value of tokens consumed rather than $0. Rows mirror the model makes' list
+  // prices (same tiers as their canonical providers: deepseek, glm, minimax);
+  // open-weight hosts (gpt-oss, gemma, qwen, nemotron) are $0 per modern practice.
+  // Added 2026-08-11: ollamacloud had NO pricing block, so getPricingForModel
+  // returned null and usage/logs silently showed $0 for every ollama model.
+  ollamacloud: {
+    "deepseek-v4-flash": {
+      input: 0.07,
+      output: 0.28,
+      cached: 0.014,
+      reasoning: 0.28,
+      cache_creation: 0.07,
+    },
+    "deepseek-v4-pro": {
+      input: 0.435,
+      output: 0.87,
+      cached: 0.0036,
+      reasoning: 0.87,
+      cache_creation: 0.435,
+    },
+    "glm-5.1": {
+      input: 0.98,
+      output: 3.08,
+      cached: 0.2275,
+      reasoning: 3.08,
+      cache_creation: 0.98,
+    },
+    "minimax-m3": {
+      input: 0.5,
+      output: 2.0,
+      cached: 0.05,
+      reasoning: 2.0,
+      cache_creation: 0.5,
+    },
+    "minimax-m2.7": {
+      input: 0.4,
+      output: 1.6,
+      cached: 0.04,
+      reasoning: 1.6,
+      cache_creation: 0.4,
+    },
+    "gpt-oss:120b": { input: 0, output: 0, cached: 0, reasoning: 0, cache_creation: 0 },
+    "gpt-oss:20b": { input: 0, output: 0, cached: 0, reasoning: 0, cache_creation: 0 },
+  },
   // Cheaper Inference resale rates — captured from GET /v1/models on 2026-07-31
   // (the catalog reports discount_percent "30.00" against model-maker list price).
   // USD per 1M tokens. `reasoning` mirrors `output`: the gateway bills reasoning
@@ -218,7 +264,13 @@ export const DEFAULT_PRICING_INFERENCE = {
       reasoning: 21.0,
       cache_creation: 3.5,
     },
-    "gpt-5.6-terra": { input: 1.0, output: 6.0, cached: 0.125, reasoning: 6.0, cache_creation: 1.0 },
+    "gpt-5.6-terra": {
+      input: 1.0,
+      output: 6.0,
+      cached: 0.125,
+      reasoning: 6.0,
+      cache_creation: 1.0,
+    },
     "grok-4.5": { input: 1.4, output: 4.2, cached: 0.35, reasoning: 4.2, cache_creation: 1.4 },
     "kimi-k3": { input: 2.1, output: 10.5, cached: 0.2625, reasoning: 10.5, cache_creation: 2.1 },
     "minimax-m2.7": {
