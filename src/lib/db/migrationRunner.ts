@@ -517,6 +517,13 @@ function isSchemaAlreadyApplied(
           .prepare("SELECT 1 FROM provider_connections WHERE provider = 'freepik' LIMIT 1")
           .get() == null
       );
+    case "165":
+      // Retroactive guard for fusion_strategies renumber (143 → 154 → 163 → 165
+      // across fork/upstream syncs). Any DB that already created the table —
+      // under any of the earlier numbers — must not re-run the CREATE/INSERT,
+      // which would fail on the UNIQUE seed rows.
+      if (migration.name !== "fusion_strategies") return false;
+      return hasTable(db, "fusion_strategies");
     default:
       return false;
   }

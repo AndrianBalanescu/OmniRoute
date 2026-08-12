@@ -21,7 +21,7 @@ import {
   type EmbeddingModality,
   type EmbeddingProvider,
 } from "../config/embeddingRegistry.ts";
-import { saveCallLog } from "@/lib/usageDb";
+import { saveCallLog, saveRequestUsage } from "@/lib/usageDb";
 import { createRequestLogger } from "../utils/requestLogger.ts";
 import { isDetailedLoggingEnabled } from "@/lib/db/detailedLogs";
 import { getCallLogPipelineCaptureStreamChunks } from "@/lib/logEnv";
@@ -531,6 +531,28 @@ export async function handleEmbedding({
       apiKeyName,
       connectionId,
     }).catch(() => {});
+
+    // Persist to usage_history so embeddings appear in usage analytics and the
+    // per-api-key usage counter — previously only call_logs (Logger tab) was
+    // written, so embedding traffic (incl. local provider_nodes) was invisible
+    // to /dashboard/usage. Embeddings bill input tokens only.
+    saveRequestUsage({
+      provider,
+      model: `${provider}/${model}`,
+      tokens: {
+        prompt_tokens: data.usage?.prompt_tokens || data.usage?.total_tokens || 0,
+        completion_tokens: 0,
+      },
+      status: "200",
+      success: true,
+      latencyMs: Date.now() - startTime,
+      apiKeyId: apiKeyId || undefined,
+      apiKeyName: apiKeyName || undefined,
+      connectionId: connectionId || undefined,
+      endpoint: "/v1/embeddings",
+    }).catch((err) => {
+      console.error("Failed to save embedding usage stats:", err.message);
+    });
 
     // Record quota consumption (fire-and-forget, never blocks)
     if (apiKeyId && connectionId && provider) {

@@ -95,11 +95,18 @@ test("monitoring logs group contains logs, logs-proxy, logs-console, logs-timeli
 
   const itemIds = logsGroup.items.map((i) => i.id);
   assert.deepEqual(itemIds, [
+<<<<<<< HEAD
+=======
+    "logs-overview",
+>>>>>>> d99cc709c (feat(logs): compact timeline+logs overview page, debounce log search, ollamacloud pricing, embeddings usage tracking)
     "logs",
     "logs-proxy",
     "logs-console",
     "logs-timeline",
+<<<<<<< HEAD
     "conversations",
+=======
+>>>>>>> d99cc709c (feat(logs): compact timeline+logs overview page, debounce log search, ollamacloud pricing, embeddings usage tracking)
   ]);
 });
 

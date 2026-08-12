@@ -56,7 +56,11 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "logs-proxy",
   "logs-console",
   "logs-timeline",
+<<<<<<< HEAD
   "conversations",
+=======
+  "logs-overview",
+>>>>>>> d99cc709c (feat(logs): compact timeline+logs overview page, debounce log search, ollamacloud pricing, embeddings usage tracking)
   "logs-activity",
   "health",
   "runtime",

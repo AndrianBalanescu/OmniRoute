@@ -141,6 +141,16 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
     const [loading, setLoading] = useState(true);
     const [recording, setRecording] = useState(true);
     const [search, setSearch] = useState("");
+    // The logs table previously fetched upstream on every keystroke (fetchLogs
+    // depended on `search`), so fast typing fired N concurrent requests whose
+    // out-of-order responses overwrote each other — the glitchy search. Keep
+    // `search` bound to the input for instant UI, but let fetchLogs read a
+    // debounced copy so the network settles before refetching.
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+    useEffect(() => {
+      const id = setTimeout(() => setDebouncedSearch(search), 300);
+      return () => clearTimeout(id);
+    }, [search]);
     const [activeFilter, setActiveFilter] = useState("all");
     const [selectedModel, setSelectedModel] = useState("");
     const [selectedAccount, setSelectedAccount] = useState("");
@@ -252,7 +262,7 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
         if (showLoading) setLoading(true);
         try {
           const params = new URLSearchParams();
-          if (search) params.set("search", search);
+          if (debouncedSearch) params.set("search", debouncedSearch);
           if (activeFilter === "error") params.set("status", "error");
           if (activeFilter === "ok") params.set("status", "ok");
           if (activeFilter === "combo") params.set("combo", "1");
@@ -284,7 +294,7 @@ const RequestLoggerV2 = forwardRef<RequestLoggerV2Handle, { initialSelectedId?: 
         }
       },
       [
-        search,
+        debouncedSearch,
         activeFilter,
         selectedModel,
         selectedAccount,
