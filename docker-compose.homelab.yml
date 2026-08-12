@@ -61,8 +61,8 @@ services:
         OMNIROUTE_USE_TURBOPACK: ${OMNIROUTE_USE_TURBOPACK:-0}
     image: omniroute:homelab
     restart: unless-stopped
-    mem_limit: 5g
-    memswap_limit: 7g
+    mem_limit: 16g
+    memswap_limit: 18g
     oom_score_adj: -500
     stop_grace_period: 40s
     env_file: .env
@@ -80,7 +80,7 @@ services:
       - LIVE_WS_HOST=0.0.0.0
       - DATA_DIR=/app/data
       - REDIS_URL=redis://redis:6379
-      - OMNIROUTE_MEMORY_MB=${OMNIROUTE_MEMORY_MB:-2048}
+      - OMNIROUTE_MEMORY_MB=${OMNIROUTE_MEMORY_MB:-4096}
       - BASE_URL=${BASE_URL:-http://100.70.158.21:20128}
       - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-http://100.70.158.21:20128}
       - LIVE_WS_ALLOWED_HOSTS=homelab,homelab.taild8b2e2.ts.net,100.70.158.21,192.168.1.205,localhost,127.0.0.1

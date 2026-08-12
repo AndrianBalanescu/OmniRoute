@@ -1,5 +1,11 @@
 # OmniRoute agent guide
 
+> **Personal fork overlay**: when operating this checkout on the homelab (DEV/PROD,
+> Docker, provider/combos, or deployment), read [`HOMELAB.md`](HOMELAB.md) before
+> running operational commands. `HOMELAB.md` is fork-only and tracked on
+> `personal/stable`; it supplements this upstream project guide and must not be
+> pushed to `diegosouzapw/OmniRoute`.
+
 > **Single source of truth.** This file holds ALL project rules, conventions, architecture notes
 > and Hard Rules for every AI assistant working this repository (Claude Code, Gemini, Codex,
 > Copilot, and any other agent). `CLAUDE.md` and `GEMINI.md` only add assistant-specific deltas

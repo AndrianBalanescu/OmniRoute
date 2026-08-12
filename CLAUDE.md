@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+> **Homelab overlay**: for this personal checkout, read [`HOMELAB.md`](HOMELAB.md)
+> after `AGENTS.md` whenever the task touches DEV/PROD, Docker, providers,
+> combos, or deployment. It contains fork-only operational instructions.
+
 @AGENTS.md
 
 **All project rules live in [`AGENTS.md`](AGENTS.md)** — the single source of truth for every AI
