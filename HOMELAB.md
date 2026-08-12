@@ -93,6 +93,25 @@ rm -f ~/.omniroute-dev/storage.sqlite-shm ~/.omniroute-dev/storage.sqlite-wal
   DEV (above) before starting the dev server.
 - Turbopack inotify limit: `sudo sysctl fs.inotify.max_user_watches=524288`.
 
+## Production runtime limits (current, 2026-08-12)
+
+- `mem_limit: 16g`, `memswap_limit: 18g`, `OMNIROUTE_MEMORY_MB: 4096` in
+  `docker-compose.homelab.yml`.
+- **Why 16g and not lower**: the `resource_pressure` 503 guard
+  (`open-sse/utils/resourcePressure.ts`) counts **cgroup page cache** in its
+  ratio, not just real anon memory. At `5g` the 92% trip point (4.6 GiB) was
+  reachable purely from page cache on big-context loads, so a barely-used
+  instance still shed traffic (`503 resource_pressure`). `docker stats`
+  excludes cache and **lies** about the guard's view. Raise the cgroup ceiling
+  (16g) instead of fighting cache; the guard stays as a runaway firewall
+  (92% of 16g = ~14.7 GiB — practically unreachable).
+- Heap: `OMNIROUTE_MEMORY_MB=4096` → V8 `heap_size_limit` ~4.3 GiB →
+  auto-calibrated `HEAP_PRESSURE_THRESHOLD_MB` ~3.7 GiB. The running server
+  PID's `NODE_OPTIONS` ends with `--max-old-space-size=4096`; a fresh
+  `node -e` probe shows the image default (1024) — that is NOT the server heap.
+- Do not shrink these without re-reading `resourcePressurePolicy.ts`
+  (thresholds are hardcoded defaults: high 0.85 / critical 0.92 / PSI 40).
+
 ## Sync / Update Flow (upstream → personal)
 
 When `personal/stable` drifts behind upstream, prefer **cherry-pick onto a
