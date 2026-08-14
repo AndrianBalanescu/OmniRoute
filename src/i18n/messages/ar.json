@@ -1122,6 +1122,8 @@
     "consoleLogs": "سجلات وحدة التحكم",
     "logsTimeline": "Timeline",
     "logsTimelineSubtitle": "جدول زمني للطلبات المرئية",
+    "logsOverview": "Overview",
+    "logsOverviewSubtitle": "Timeline + logs at a glance",
     "globalRouting": "التوجيه العام",
     "mitmProxy": "بروكسي MITM",
     "oneProxy": "1Proxy",

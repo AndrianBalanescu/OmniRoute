@@ -1122,6 +1122,8 @@
     "consoleLogs": "Nhật ký bảng điều khiển",
     "logsTimeline": "Timeline",
     "logsTimelineSubtitle": "Dòng thời gian yêu cầu trực quan",
+    "logsOverview": "Overview",
+    "logsOverviewSubtitle": "Timeline + logs at a glance",
     "globalRouting": "Định tuyến toàn cục",
     "mitmProxy": "MITM Proxy",
     "oneProxy": "1Proxy",

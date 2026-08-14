@@ -1122,6 +1122,8 @@
     "consoleLogs": "Console Logs",
     "logsTimeline": "Timeline",
     "logsTimelineSubtitle": "காட்சி கோரிக்கை காலக்கெடு",
+    "logsOverview": "Overview",
+    "logsOverviewSubtitle": "Timeline + logs at a glance",
     "globalRouting": "Global Routing",
     "mitmProxy": "MITM Proxy",
     "oneProxy": "1Proxy",

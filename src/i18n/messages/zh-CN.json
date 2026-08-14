@@ -1122,6 +1122,8 @@
     "consoleLogs": "控制台日志",
     "logsTimeline": "Timeline",
     "logsTimelineSubtitle": "可视化请求时间线",
+    "logsOverview": "Overview",
+    "logsOverviewSubtitle": "Timeline + logs at a glance",
     "globalRouting": "全局路由",
     "mitmProxy": "MITM 代理",
     "oneProxy": "1Proxy",

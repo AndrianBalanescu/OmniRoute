@@ -1122,6 +1122,8 @@
     "consoleLogs": "Konsol qeydləri",
     "logsTimeline": "Timeline",
     "logsTimelineSubtitle": "Vizual tələb zaman cədvəli",
+    "logsOverview": "Overview",
+    "logsOverviewSubtitle": "Timeline + logs at a glance",
     "globalRouting": "Qlobal marşrutlaşdırma",
     "mitmProxy": "MITM Proksi",
     "oneProxy": "1 Proksi",

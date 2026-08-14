@@ -1122,6 +1122,8 @@
     "consoleLogs": "Логи консолі",
     "logsTimeline": "Timeline",
     "logsTimelineSubtitle": "Візуальний графік запитів",
+    "logsOverview": "Overview",
+    "logsOverviewSubtitle": "Timeline + logs at a glance",
     "globalRouting": "Глобальна маршрутизація",
     "mitmProxy": "MITM-проксі",
     "oneProxy": "1Proxy",

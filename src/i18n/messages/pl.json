@@ -1122,6 +1122,8 @@
     "consoleLogs": "Logi konsoli",
     "logsTimeline": "Timeline",
     "logsTimelineSubtitle": "Wizualny harmonogram żądań",
+    "logsOverview": "Overview",
+    "logsOverviewSubtitle": "Timeline + logs at a glance",
     "globalRouting": "Routing globalny",
     "mitmProxy": "MITM Proxy",
     "oneProxy": "1Proxy",
