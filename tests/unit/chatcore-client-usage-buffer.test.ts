@@ -112,6 +112,20 @@ test("content length is computed from choices[0].message.content", () => {
   assert.equal(args[1], 5);
 });
 
+test("reasoning-only response (no content) still estimates output tokens", () => {
+  // Reasoning-first models (e.g. Qwen 3.8 via HF zeroGPU) send the whole answer
+  // in message.reasoning_content with no content. Previously the estimation read
+  // only content, so it coded 0 output tokens for real traffic.
+  const { deps, calls } = makeDeps();
+  const resp: Record<string, unknown> = {
+    choices: [{ message: { content: "", reasoning_content: "hidden chain of thought" } }],
+  };
+  applyClientUsageBuffer(resp, {}, "openai", {}, deps);
+  const args = calls.estimate[0] as unknown[];
+  assert.equal(typeof args[1], "number");
+  assert.ok(args[1] > 2, `expected reasoning length counted, got ${args[1]}`);
+});
+
 // #8331/#8356 added the `options` parameter between `clientResponseFormat` and `deps`,
 // which is what silently broke the five call sites above (the injected spies landed in
 // the `options` slot, so the real implementations ran and no spy was ever recorded).

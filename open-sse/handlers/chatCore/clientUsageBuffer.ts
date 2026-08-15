@@ -29,7 +29,7 @@ import {
 type ResponseLike =
   | {
       usage?: unknown;
-      choices?: Array<{ message?: { content?: unknown } }>;
+      choices?: Array<{ message?: { content?: unknown; reasoning_content?: unknown } }>;
     }
   | null
   | undefined;
@@ -126,8 +126,12 @@ export function applyClientUsageBuffer(
   } else {
     // Fallback: estimate usage when provider returned no usage block
     // (or an all-zero stub — common for cookie/web reverse-engineered providers).
+    const message = translatedResponse?.choices?.[0]?.message;
+    // Count visible content plus reasoning_content — reasoning-first models
+    // (e.g. Qwen 3.8 via HF zeroGPU) emit only reasoning_content with no content,
+    // so an estimation on content alone silently records 0 output tokens.
     const contentLength = JSON.stringify(
-      translatedResponse?.choices?.[0]?.message?.content || ""
+      [message?.content, message?.reasoning_content].filter((c) => c != null).join("") || ""
     ).length;
     if (contentLength > 0) {
       const estimated = deps.estimateUsage(body, contentLength, clientResponseFormat);
