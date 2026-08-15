@@ -133,8 +133,10 @@ function formatDateLabel(ms: number): string {
 
 export default function RequestTimeline({
   initialSelectedId,
+  compact = false,
 }: {
   initialSelectedId?: string | null;
+  compact?: boolean;
 } = {}) {
   const router = useRouter();
   const [logs, setLogs] = useState<TimelineLog[]>([]);
@@ -538,62 +540,64 @@ export default function RequestTimeline({
 
   return (
     <div className="flex flex-col h-full min-h-0 select-none">
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0"
-        style={{ height: HEADER_HEIGHT }}
-      >
-        <div className="flex items-center gap-3">
-          <h2 className="text-sm font-semibold text-text-main">Request Timeline</h2>
-          <span className="text-[10px] text-text-muted font-mono">
-            {visibleLogs.length} visible / {logs.length} total
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Mode selector */}
-          <div className="flex items-center rounded-lg border border-border overflow-hidden">
-            {(["follow", "live", "pan"] as ViewMode[]).map((m) => (
-              <button
-                key={m}
-                onClick={() => handleModeChange(m)}
-                title={MODE_META[m].description}
-                className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  mode === m
-                    ? "bg-primary text-white"
-                    : "bg-bg-subtle text-text-muted hover:text-text-main"
-                }`}
-              >
-                {MODE_META[m].label}
-              </button>
-            ))}
-          </div>
-          <button
-            onClick={handleReset}
-            title={`Jump to current time, NOW line resets to position ${Math.round(nowLineX)}%`}
-            className="px-2 py-1 text-[11px] text-text-muted hover:text-text-main bg-bg-subtle rounded-md border border-border transition-colors"
-          >
-            Reset
-          </button>
-          {/* Zoom */}
-          <div className="flex items-center gap-1 rounded-lg border border-border overflow-hidden">
-            <button
-              onClick={() => setZoom((z) => Math.max(0.001, z * 0.5))}
-              className="px-2 py-1 text-[11px] text-text-muted hover:text-text-main bg-bg-subtle transition-colors"
-            >
-              -
-            </button>
-            <span className="px-1 text-[10px] text-text-muted font-mono min-w-[36px] text-center">
-              {zoom >= 1 ? `${zoom}x` : `${zoom * 100}%`}
+      {/* Header — hidden in compact mode: the overview page shows just the canvas */}
+      {!compact && (
+        <div
+          className="flex items-center justify-between px-4 py-2 border-b border-border shrink-0"
+          style={{ height: HEADER_HEIGHT }}
+        >
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-semibold text-text-main">Request Timeline</h2>
+            <span className="text-[10px] text-text-muted font-mono">
+              {visibleLogs.length} visible / {logs.length} total
             </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* Mode selector */}
+            <div className="flex items-center rounded-lg border border-border overflow-hidden">
+              {(["follow", "live", "pan"] as ViewMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => handleModeChange(m)}
+                  title={MODE_META[m].description}
+                  className={`px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    mode === m
+                      ? "bg-primary text-white"
+                      : "bg-bg-subtle text-text-muted hover:text-text-main"
+                  }`}
+                >
+                  {MODE_META[m].label}
+                </button>
+              ))}
+            </div>
             <button
-              onClick={() => setZoom((z) => Math.min(8, z * 2))}
-              className="px-2 py-1 text-[11px] text-text-muted hover:text-text-main bg-bg-subtle transition-colors"
+              onClick={handleReset}
+              title={`Jump to current time, NOW line resets to position ${Math.round(nowLineX)}%`}
+              className="px-2 py-1 text-[11px] text-text-muted hover:text-text-main bg-bg-subtle rounded-md border border-border transition-colors"
             >
-              +
+              Reset
             </button>
+            {/* Zoom */}
+            <div className="flex items-center gap-1 rounded-lg border border-border overflow-hidden">
+              <button
+                onClick={() => setZoom((z) => Math.max(0.001, z * 0.5))}
+                className="px-2 py-1 text-[11px] text-text-muted hover:text-text-main bg-bg-subtle transition-colors"
+              >
+                -
+              </button>
+              <span className="px-1 text-[10px] text-text-muted font-mono min-w-[36px] text-center">
+                {zoom >= 1 ? `${zoom}x` : `${zoom * 100}%`}
+              </span>
+              <button
+                onClick={() => setZoom((z) => Math.min(8, z * 2))}
+                className="px-2 py-1 text-[11px] text-text-muted hover:text-text-main bg-bg-subtle transition-colors"
+              >
+                +
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Canvas */}
       <div
