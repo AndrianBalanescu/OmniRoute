@@ -27,9 +27,9 @@ const EXPECTED_FLASH_TIERS = [
 ] as const;
 
 // Gemini 3.7 Flash: upstream exposes only `gemini-3.7-flash-tiered` (verified live
-// 2026-08-15 via fetchAvailableModels on all accounts, ide + cli). The 3.6-style
-// tier ids we guessed earlier and the bare id must all resolve to that single id.
-const GEMINI_37_ALIAS_IDS = [
+// 2026-08-15 via fetchAvailableModels on all accounts, ide + cli). No -high/-medium/-low
+// ids exist for 3.7 and no bare `gemini-3.7-flash` id, so those variants are NOT callable.
+const GEMINI_37_UNREAL_IDS = [
   "gemini-3.7-flash",
   "gemini-3.7-flash-high",
   "gemini-3.7-flash-medium",
@@ -59,9 +59,9 @@ test("resolveAntigravityModelId maps the documented Antigravity aliases to upstr
   for (const [modelId] of EXPECTED_FLASH_TIERS) {
     assert.equal(resolveAntigravityModelId(modelId), modelId);
   }
-  // Gemini 3.7 Flash aliases map to the single live upstream id.
-  for (const aliasId of GEMINI_37_ALIAS_IDS) {
-    assert.equal(resolveAntigravityModelId(aliasId), "gemini-3.7-flash-tiered");
+  // Gemini 3.7 Flash variants are NOT aliased — upstream has no such ids; they 404.
+  for (const unrealId of GEMINI_37_UNREAL_IDS) {
+    assert.equal(resolveAntigravityModelId(unrealId), unrealId);
   }
   assert.equal(resolveAntigravityModelId("gemini-claude-sonnet-4-5"), "claude-sonnet-4-6");
   assert.equal(resolveAntigravityModelId("gemini-claude-sonnet-4-5-thinking"), "claude-sonnet-4-6");
@@ -96,12 +96,10 @@ test("isUserCallableAntigravityModelId only allows public chat-capable model IDs
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash"), true);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash-lite"), true);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash-thinking"), true);
-  // Gemini 3.7 aliases are callable even though they are not literal catalog ids —
-  // they resolve to the single live upstream id `gemini-3.7-flash-tiered`.
-  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash"), true);
-  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash-high"), true);
-  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash-medium"), true);
-  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash-low"), true);
+  // Gemini 3.7 variants that don't exist upstream are NOT callable.
+  for (const unrealId of GEMINI_37_UNREAL_IDS) {
+    assert.equal(isUserCallableAntigravityModelId(unrealId), false);
+  }
   assert.equal(isUserCallableAntigravityModelId("gemini-pro-agent"), true);
   // #3184: Claude IS user-callable through the Antigravity OAuth provider (same backend as
   // `agy`, verified empirically). An earlier assumption that it was removed in Antigravity

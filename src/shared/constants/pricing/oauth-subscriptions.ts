@@ -332,27 +332,6 @@ export const DEFAULT_PRICING_OAUTH = {
       reasoning: 7.5,
       cache_creation: 1.5,
     },
-    "gemini-3.7-flash-high": {
-      input: 1.5,
-      output: 7.5,
-      cached: 0.15,
-      reasoning: 7.5,
-      cache_creation: 1.5,
-    },
-    "gemini-3.7-flash-medium": {
-      input: 1.5,
-      output: 7.5,
-      cached: 0.15,
-      reasoning: 7.5,
-      cache_creation: 1.5,
-    },
-    "gemini-3.7-flash-low": {
-      input: 1.5,
-      output: 7.5,
-      cached: 0.15,
-      reasoning: 7.5,
-      cache_creation: 1.5,
-    },
     "gemini-3.6-flash-low": {
       input: 1.5,
       output: 7.5,

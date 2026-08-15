@@ -164,13 +164,9 @@ export const ANTIGRAVITY_MODEL_ALIASES = Object.freeze({
   // the live upstream id is gemini-pro-agent (see ANTIGRAVITY_PUBLIC_MODELS).
   "gemini-3.1-pro-high": "gemini-pro-agent",
   "gemini-3-pro-image-preview": "gemini-3-pro-image",
-  // Gemini 3.7 Flash: upstream exposes a single `gemini-3.7-flash-tiered` id. The
-  // guessed 3.6-style tier ids and the bare id map to it so existing callers keep
-  // working (all three tiers hit the same upstream model).
-  "gemini-3.7-flash": "gemini-3.7-flash-tiered",
-  "gemini-3.7-flash-high": "gemini-3.7-flash-tiered",
-  "gemini-3.7-flash-medium": "gemini-3.7-flash-tiered",
-  "gemini-3.7-flash-low": "gemini-3.7-flash-tiered",
+  // Gemini 3.7 Flash: upstream exposes a single `gemini-3.7-flash-tiered` id.
+  // There are no -high/-medium/-low ids (unlike 3.6) and no bare `gemini-3.7-flash`
+  // id — all other variants 404 upstream and are not aliased.
   // Legacy Claude display ids → current upstream ids. NOTE: an earlier comment here
   // assumed Claude was removed from Antigravity 2.0 and would 404; discussion #3184
   // disproved that — the Antigravity OAuth backend still serves claude-opus-4-6-thinking
