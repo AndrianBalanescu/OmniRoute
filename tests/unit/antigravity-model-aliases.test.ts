@@ -17,12 +17,23 @@ function getPublicModel(id: string) {
 }
 
 const EXPECTED_FLASH_TIERS = [
+  ["gemini-3.7-flash-tiered", "Gemini 3.7 Flash (Tiered)"],
   ["gemini-3.6-flash-low", "Gemini 3.6 Flash (Low)"],
   ["gemini-3.6-flash-medium", "Gemini 3.6 Flash (Medium)"],
   ["gemini-3.6-flash-high", "Gemini 3.6 Flash (High)"],
   ["gemini-3.5-flash-extra-low", "Gemini 3.5 Flash (Low)"],
   ["gemini-3.5-flash-low", "Gemini 3.5 Flash (Medium)"],
   ["gemini-3-flash-agent", "Gemini 3.5 Flash (High)"],
+] as const;
+
+// Gemini 3.7 Flash: upstream exposes only `gemini-3.7-flash-tiered` (verified live
+// 2026-08-15 via fetchAvailableModels on all accounts, ide + cli). The 3.6-style
+// tier ids we guessed earlier and the bare id must all resolve to that single id.
+const GEMINI_37_ALIAS_IDS = [
+  "gemini-3.7-flash",
+  "gemini-3.7-flash-high",
+  "gemini-3.7-flash-medium",
+  "gemini-3.7-flash-low",
 ] as const;
 
 const RETIRED_FLASH_IDS = [
@@ -47,6 +58,10 @@ test("resolveAntigravityModelId maps the documented Antigravity aliases to upstr
   assert.equal(resolveAntigravityModelId("gemini-3-pro-image-preview"), "gemini-3-pro-image");
   for (const [modelId] of EXPECTED_FLASH_TIERS) {
     assert.equal(resolveAntigravityModelId(modelId), modelId);
+  }
+  // Gemini 3.7 Flash aliases map to the single live upstream id.
+  for (const aliasId of GEMINI_37_ALIAS_IDS) {
+    assert.equal(resolveAntigravityModelId(aliasId), "gemini-3.7-flash-tiered");
   }
   assert.equal(resolveAntigravityModelId("gemini-claude-sonnet-4-5"), "claude-sonnet-4-6");
   assert.equal(resolveAntigravityModelId("gemini-claude-sonnet-4-5-thinking"), "claude-sonnet-4-6");
@@ -81,6 +96,12 @@ test("isUserCallableAntigravityModelId only allows public chat-capable model IDs
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash"), true);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash-lite"), true);
   assert.equal(isUserCallableAntigravityModelId("gemini-2.5-flash-thinking"), true);
+  // Gemini 3.7 aliases are callable even though they are not literal catalog ids —
+  // they resolve to the single live upstream id `gemini-3.7-flash-tiered`.
+  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash"), true);
+  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash-high"), true);
+  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash-medium"), true);
+  assert.equal(isUserCallableAntigravityModelId("gemini-3.7-flash-low"), true);
   assert.equal(isUserCallableAntigravityModelId("gemini-pro-agent"), true);
   // #3184: Claude IS user-callable through the Antigravity OAuth provider (same backend as
   // `agy`, verified empirically). An earlier assumption that it was removed in Antigravity

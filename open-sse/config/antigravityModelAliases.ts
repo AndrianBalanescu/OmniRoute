@@ -1,34 +1,7 @@
 export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
-  // Gemini 3.7 Flash tiers (released 2026-08-?) — matching 3.6 Flash pattern.
-  {
-    id: "gemini-3.7-flash-high",
-    name: "Gemini 3.7 Flash (High)",
-    contextLength: 1048576,
-    maxOutputTokens: 65536,
-    supportsReasoning: true,
-    supportsVision: true,
-    toolCalling: true,
-  },
-  {
-    id: "gemini-3.7-flash-medium",
-    name: "Gemini 3.7 Flash (Medium)",
-    contextLength: 1048576,
-    maxOutputTokens: 65536,
-    supportsReasoning: true,
-    supportsVision: true,
-    toolCalling: true,
-  },
-  {
-    id: "gemini-3.7-flash-low",
-    name: "Gemini 3.7 Flash (Low)",
-    contextLength: 1048576,
-    maxOutputTokens: 65536,
-    supportsReasoning: true,
-    supportsVision: true,
-    toolCalling: true,
-  },
-  // Gemini 3.6 Flash tiers returned by the live model selector for both the IDE 2.1.1
-  // and CLI 1.1.x client identities. High is the current defaultAgentModelId.
+  // Gemini 3.6 Flash tiers. The live endpoint selects High by default and advertises
+  // all three ids to both the IDE 2.1.1 and CLI 1.1.x clients. Kept first: the
+  // dashboard/retired-ids tests assert the live 3.6 default tiers lead the catalog.
   {
     id: "gemini-3.6-flash-high",
     name: "Gemini 3.6 Flash (High)",
@@ -168,6 +141,21 @@ export const ANTIGRAVITY_PUBLIC_MODELS = Object.freeze([
     supportsReasoning: true,
     toolCalling: true,
   },
+  // Gemini 3.7 Flash (released 2026-08-15). The live fetchAvailableModels probe on
+  // 2026-08-15 exposes a SINGLE upstream id `gemini-3.7-flash-tiered` (recommended,
+  // supportsThinking, maxTokens 1M) on all 6 active accounts, both ide and cli client
+  // profiles — there are no separate -high/-medium/-low ids like 3.6. Aliases below map
+  // the guessed tier ids and the bare id to the live upstream id. Kept after the
+  // established 3.6/3.5 order so the leading-catalog order tests stay green.
+  {
+    id: "gemini-3.7-flash-tiered",
+    name: "Gemini 3.7 Flash (Tiered)",
+    contextLength: 1048576,
+    maxOutputTokens: 65536,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
 ]);
 
 export const ANTIGRAVITY_MODEL_ALIASES = Object.freeze({
@@ -176,6 +164,13 @@ export const ANTIGRAVITY_MODEL_ALIASES = Object.freeze({
   // the live upstream id is gemini-pro-agent (see ANTIGRAVITY_PUBLIC_MODELS).
   "gemini-3.1-pro-high": "gemini-pro-agent",
   "gemini-3-pro-image-preview": "gemini-3-pro-image",
+  // Gemini 3.7 Flash: upstream exposes a single `gemini-3.7-flash-tiered` id. The
+  // guessed 3.6-style tier ids and the bare id map to it so existing callers keep
+  // working (all three tiers hit the same upstream model).
+  "gemini-3.7-flash": "gemini-3.7-flash-tiered",
+  "gemini-3.7-flash-high": "gemini-3.7-flash-tiered",
+  "gemini-3.7-flash-medium": "gemini-3.7-flash-tiered",
+  "gemini-3.7-flash-low": "gemini-3.7-flash-tiered",
   // Legacy Claude display ids → current upstream ids. NOTE: an earlier comment here
   // assumed Claude was removed from Antigravity 2.0 and would 404; discussion #3184
   // disproved that — the Antigravity OAuth backend still serves claude-opus-4-6-thinking

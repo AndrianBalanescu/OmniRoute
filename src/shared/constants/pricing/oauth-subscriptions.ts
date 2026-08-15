@@ -319,9 +319,20 @@ export const DEFAULT_PRICING_OAUTH = {
     // downstream cost and quota calculations silently fall back to $0.
     // Pricing: $1.50 input / $7.50 output / $0.15 cached per MTok. Thinking tokens
     // billed at output rate.
-    // Gemini 3.7 Flash — tiers matching 3.6 pattern
+    // Gemini 3.7 Flash — single live upstream id `gemini-3.7-flash-tiered`
+    // (verified 2026-08-15 against fetchAvailableModels; there are no separate
+    // -high/-medium/-low ids for 3.7, unlike 3.6). The legacy tier ids below are
+    // kept as pricing rows so alias'ed callers (executor maps all to -tiered) still
+    // cost-track correctly — getPricingForModel() looks up the client model id.
     // Pricing: $1.50 input / $7.50 output / $0.15 cached per MTok (same as 3.6).
-    "gemini-3.7-flash-low": {
+    "gemini-3.7-flash-tiered": {
+      input: 1.5,
+      output: 7.5,
+      cached: 0.15,
+      reasoning: 7.5,
+      cache_creation: 1.5,
+    },
+    "gemini-3.7-flash-high": {
       input: 1.5,
       output: 7.5,
       cached: 0.15,
@@ -335,7 +346,7 @@ export const DEFAULT_PRICING_OAUTH = {
       reasoning: 7.5,
       cache_creation: 1.5,
     },
-    "gemini-3.7-flash-high": {
+    "gemini-3.7-flash-low": {
       input: 1.5,
       output: 7.5,
       cached: 0.15,
