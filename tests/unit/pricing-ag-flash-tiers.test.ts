@@ -55,3 +55,18 @@ for (const tier of ["low", "medium", "high"]) {
     assert.equal(p.cache_creation, 1.5);
   });
 }
+
+// Gemini 3.7 Flash (released 2026-08-15) exposes ONE public client id
+// `gemini-3.7-flash-tiered` in ANTIGRAVITY_PUBLIC_MODELS. Upstream pricing is
+// NOT the 3.6 rate — it is $0.75 input / $3.75 output / $0.075 cached per MTok
+// (Google Vertex/AI Studio, non-discounted). Assert the exact row so it can't
+// silently drift back to a 3.6-style $1.50/$7.50 pattern.
+test("ag/gemini-3.7-flash-tiered matches the real Gemini 3.7 Flash tier pricing", () => {
+  const p = getDefaultPricing().ag["gemini-3.7-flash-tiered"];
+  assert.ok(p, "expected a pricing row for ag/gemini-3.7-flash-tiered");
+  assert.equal(p.input, 0.75);
+  assert.equal(p.output, 3.75);
+  assert.equal(p.cached, 0.075);
+  assert.equal(p.reasoning, 3.75);
+  assert.equal(p.cache_creation, 0.75);
+});

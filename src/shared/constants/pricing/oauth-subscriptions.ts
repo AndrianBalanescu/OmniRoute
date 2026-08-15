@@ -321,16 +321,15 @@ export const DEFAULT_PRICING_OAUTH = {
     // billed at output rate.
     // Gemini 3.7 Flash — single live upstream id `gemini-3.7-flash-tiered`
     // (verified 2026-08-15 against fetchAvailableModels; there are no separate
-    // -high/-medium/-low ids for 3.7, unlike 3.6). The legacy tier ids below are
-    // kept as pricing rows so alias'ed callers (executor maps all to -tiered) still
-    // cost-track correctly — getPricingForModel() looks up the client model id.
-    // Pricing: $1.50 input / $7.50 output / $0.15 cached per MTok (same as 3.6).
+    // -high/-medium/-low ids for 3.7, unlike 3.6).
+    // Pricing (Vertex/AI Studio, non-discounted): $0.75 input / $3.75 output /
+    // $0.075 cached per MTok — NOT the 3.6 rate.
     "gemini-3.7-flash-tiered": {
-      input: 1.5,
-      output: 7.5,
-      cached: 0.15,
-      reasoning: 7.5,
-      cache_creation: 1.5,
+      input: 0.75,
+      output: 3.75,
+      cached: 0.075,
+      reasoning: 3.75,
+      cache_creation: 0.75,
     },
     "gemini-3.6-flash-low": {
       input: 1.5,
