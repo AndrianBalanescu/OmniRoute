@@ -64,16 +64,60 @@ test("applies the unknown/undefined fallbacks", () => {
 
 test("combo strategy is included only for combo requests", () => {
   const combo = buildFailureUsageRecord({
-    provider: "x", model: "y", connectionId: null, apiKeyInfo: null,
-    effectiveServiceTier: "standard", isCombo: true, comboStrategy: "round-robin",
-    statusCode: 500, errorCode: "boom", latencyMs: 1,
+    provider: "x",
+    model: "y",
+    connectionId: null,
+    apiKeyInfo: null,
+    effectiveServiceTier: "standard",
+    isCombo: true,
+    comboStrategy: "round-robin",
+    statusCode: 500,
+    errorCode: "boom",
+    latencyMs: 1,
   });
   assert.equal(combo.comboStrategy, "round-robin");
 
   const comboNoStrategy = buildFailureUsageRecord({
-    provider: "x", model: "y", connectionId: null, apiKeyInfo: null,
-    effectiveServiceTier: "standard", isCombo: true, comboStrategy: null,
-    statusCode: 500, errorCode: "boom", latencyMs: 1,
+    provider: "x",
+    model: "y",
+    connectionId: null,
+    apiKeyInfo: null,
+    effectiveServiceTier: "standard",
+    isCombo: true,
+    comboStrategy: null,
+    statusCode: 500,
+    errorCode: "boom",
+    latencyMs: 1,
   });
   assert.equal(comboNoStrategy.comboStrategy, undefined);
+});
+
+test("normalizes comma-separated candidate lists and unrouted placeholders to combo", () => {
+  const commaList = buildFailureUsageRecord({
+    provider: "glm, ollama-cloud, deepinfra",
+    model: "paid-premium",
+    connectionId: null,
+    apiKeyInfo: null,
+    effectiveServiceTier: "standard",
+    isCombo: true,
+    comboStrategy: "fill-first",
+    statusCode: 499,
+    errorCode: "client_abort",
+    latencyMs: 12,
+  });
+  assert.equal(commaList.provider, "combo");
+
+  const dashPlaceholder = buildFailureUsageRecord({
+    provider: "-",
+    model: "auto",
+    connectionId: null,
+    apiKeyInfo: null,
+    effectiveServiceTier: "standard",
+    isCombo: true,
+    comboStrategy: "auto",
+    statusCode: 502,
+    errorCode: "no_route",
+    latencyMs: 5,
+  });
+  assert.equal(dashPlaceholder.provider, "combo");
 });
