@@ -15,6 +15,8 @@ export interface ModelSpec {
   supportsThinking?: boolean;
   supportsTools?: boolean;
   supportsVision?: boolean;
+  supportsAudio?: boolean;
+  supportsVideo?: boolean;
   // Model defaults to adaptive thinking and REJECTS an explicit `thinking.type:"disabled"`
   // (upstream returns 400). Used to normalize the request when a combo/route substitutes
   // this model after the client already chose `disabled`. See issue #3554.
@@ -172,10 +174,12 @@ export const MODEL_SPECS: Record<string, ModelSpec> = {
     thinkingBudgetCap: 0,
   },
 
-  // ── Gemini 3.6 Flash (Antigravity live tiers) ───────────────────
+  // ── Gemini 3.7 / 3.6 Flash (Antigravity live tiers) ─────────────
   // The model id itself selects the upstream 10k/4k/1k reasoning tier. Antigravity
   // still rejects client-supplied thinking parameters, so keep the explicit-parameter
   // capability aligned with the existing Gemini 3.5 tier ids.
+  "gemini-3.7-flash-high": { ...GEMINI_35_FLASH_MODEL_SPEC },
+  "gemini-3.7-flash-medium": { ...GEMINI_35_FLASH_MODEL_SPEC },
   "gemini-3.6-flash-high": { ...GEMINI_35_FLASH_MODEL_SPEC },
   "gemini-3.6-flash-medium": { ...GEMINI_35_FLASH_MODEL_SPEC },
   "gemini-3.6-flash-low": { ...GEMINI_35_FLASH_MODEL_SPEC },

@@ -116,6 +116,7 @@ export async function validateDeepSeekWebProvider({ apiKey }: any) {
       return {
         valid: false,
         error: "userToken is invalid or expired — get a fresh one from localStorage",
+        statusCode: resp.status,
       };
     }
     if (!resp.ok) {
@@ -123,6 +124,20 @@ export async function validateDeepSeekWebProvider({ apiKey }: any) {
     }
     const json = await resp.json();
     const bizData = json?.data?.biz_data || json?.biz_data;
+
+    // DeepSeek's web endpoint can report auth rejection as HTTP 200 with an
+    // application-level error envelope. Code 40003 is the observed
+    // "Authorization Failed" signal. Preserve the real HTTP behavior while
+    // returning an auth-classifiable status to OmniRoute's connection-test
+    // layer so it is not collapsed into a generic upstream_error.
+    if (Number(json?.code) === 40003) {
+      return {
+        valid: false,
+        error: "userToken is invalid or expired — get a fresh one from localStorage",
+        statusCode: 401,
+      };
+    }
+
     if (!bizData?.token) {
       return {
         valid: false,

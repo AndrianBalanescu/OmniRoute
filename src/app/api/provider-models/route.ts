@@ -487,17 +487,14 @@ export async function DELETE(request) {
       );
     }
 
+    // A custom row and a synced row can share one id. Prefer the custom row when
+    // both exist; otherwise delete the synced row from the current discovery
+    // snapshot. A later sync may restore an upstream model, while Hide remains
+    // the persistent way to exclude an automatically discovered model.
     const removedCustom = await removeCustomModel(provider, modelId);
-    const removedSynced = await removeSyncedAvailableModel(provider, modelId);
-    if (removedSynced) {
-      // #3199 + #3782: mark the deleted synced model with the DISTINCT `isDeleted`
-      // marker so a later auto-fetch re-import does not re-add it. We also keep
-      // `isHidden:true` so existing UI/visibility behavior is unchanged. The sync
-      // filter keys on `isDeleted` (not `isHidden`), which is what lets an
-      // eye/visibility-hidden model (`isHidden` only) survive a re-sync while a
-      // deleted one stays dropped.
-      mergeModelCompatOverride(provider, modelId, { isDeleted: true, isHidden: true });
-    }
+    const removedSynced = removedCustom
+      ? false
+      : await removeSyncedAvailableModel(provider, modelId);
     const removed = removedCustom || removedSynced;
     const removedAliases = await deleteManagedAvailableModelAliases(provider, [modelId]);
     return Response.json({ removed, aliasChanges: { removed: removedAliases, assigned: [] } });

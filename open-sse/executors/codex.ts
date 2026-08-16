@@ -27,8 +27,9 @@ import {
 import {
   applyCodexClientIdentityHeaders,
   applyCodexClientMetadata,
-  createCodexClientIdentity,
+  applyCodexOriginalIdentityHeaders,
   type CodexClientIdentity,
+  withCodexFingerprintCredentials,
 } from "../config/codexIdentity.ts";
 import { getAccessToken } from "../services/tokenRefresh.ts";
 import { sanitizeResponsesInputItems } from "../services/responsesInputSanitizer.ts";
@@ -55,6 +56,7 @@ import {
   splitCodexReasoningSuffix,
   type CodexEffortLevel as EffortLevel,
 } from "./codex/reasoningSuffix.ts";
+import { repairMissingCodexToolCallOutputs } from "./codex/toolCallRepair.ts";
 // Re-exported for external importers (tests + provider services).
 export { isCodexFreePlan, normalizeCodexTools } from "./codex/tools.ts";
 
@@ -273,46 +275,6 @@ function stripOrphanedCodexFunctionCallOutputs(body: Record<string, unknown>): v
   if (removedCount > 0) {
     console.debug(
       `[Codex] stripOrphanedCodexFunctionCallOutputs: removed ${removedCount} orphaned function_call_output item(s)`
-    );
-  }
-}
-
-function repairMissingCodexFunctionCallOutputs(body: Record<string, unknown>): void {
-  if (!Array.isArray(body.input)) return;
-
-  const existingOutputIds = new Set<string>();
-  for (const item of body.input) {
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const record = item as Record<string, unknown>;
-    if (record.type !== "function_call_output") continue;
-    if (typeof record.call_id === "string" && record.call_id.trim()) {
-      existingOutputIds.add(record.call_id.trim());
-    }
-  }
-
-  const repaired: unknown[] = [];
-  let insertedCount = 0;
-  for (const item of body.input) {
-    repaired.push(item);
-    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-    const record = item as Record<string, unknown>;
-    if (record.type !== "function_call") continue;
-    const callId = typeof record.call_id === "string" ? record.call_id.trim() : "";
-    if (!callId || existingOutputIds.has(callId)) continue;
-
-    repaired.push({
-      type: "function_call_output",
-      call_id: callId,
-      output: "",
-    });
-    existingOutputIds.add(callId);
-    insertedCount++;
-  }
-
-  if (insertedCount > 0) {
-    body.input = repaired;
-    console.debug(
-      `[Codex] repairMissingCodexFunctionCallOutputs: inserted ${insertedCount} empty function_call_output item(s)`
     );
   }
 }
@@ -804,23 +766,11 @@ export class CodexExecutor extends BaseExecutor {
       input.model
     );
     const requestInput = requestBody === input.body ? input : { ...input, body: requestBody };
-    const sessionId = this.getPromptCacheSessionId(
+    const credentials = withCodexFingerprintCredentials(
       requestInput.credentials,
-      requestInput.body as Record<string, unknown> | null
+      requestInput.clientHeaders,
+      requestInput.body
     );
-    const identity = createCodexClientIdentity(
-      sessionId,
-      requestInput.credentials?.providerSpecificData ?? null
-    );
-    const credentials = identity
-      ? {
-          ...requestInput.credentials,
-          providerSpecificData: {
-            ...(requestInput.credentials?.providerSpecificData || {}),
-            codexClientIdentity: identity,
-          },
-        }
-      : requestInput.credentials;
     const nextInput = { ...requestInput, credentials };
 
     if (!isCodexResponsesWebSocketRequired(nextInput.model, nextInput.credentials)) {
@@ -1093,6 +1043,8 @@ export class CodexExecutor extends BaseExecutor {
     }
     const clientIdentity = credentials?.providerSpecificData?.codexClientIdentity as
       CodexClientIdentity | null | undefined;
+    const originalIdentityHeaders = credentials?.providerSpecificData
+      ?.codexOriginalIdentityHeaders as Record<string, string> | null | undefined;
 
     // Originator header — identifies the client type to the Codex backend.
     // Ref: openai/codex login/src/auth/default_client.rs DEFAULT_ORIGINATOR = "codex_cli_rs"
@@ -1105,6 +1057,7 @@ export class CodexExecutor extends BaseExecutor {
     if (cacheSessionId) {
       headers["session_id"] = cacheSessionId;
     }
+    applyCodexOriginalIdentityHeaders(headers, originalIdentityHeaders);
     applyCodexClientIdentityHeaders(headers, clientIdentity);
 
     return headers;
@@ -1264,7 +1217,7 @@ export class CodexExecutor extends BaseExecutor {
       });
     }
     stripOrphanedCodexFunctionCallOutputs(body);
-    repairMissingCodexFunctionCallOutputs(body);
+    repairMissingCodexToolCallOutputs(body);
 
     // ── Cache-aware system prompt handling (both paths) ──
     //

@@ -20,7 +20,9 @@ test("T40: OpenCode card documents config paths and --variant usage", () => {
     .join(" ")
     .toLowerCase();
 
-  assert.match(notesText, /\.config\/opencode\/opencode\.json/);
+  assert.match(notesText, /or opencode\.json\b/);
+  assert.match(notesText, /\.config\/opencode\/opencode\.jsonc/);
+  assert.match(notesText, /preferred when present/);
   // #3330: OpenCode uses ~/.config on all platforms (incl. Windows) — the note
   // must no longer point Windows users at %APPDATA%.
   assert.doesNotMatch(notesText, /%appdata%/);

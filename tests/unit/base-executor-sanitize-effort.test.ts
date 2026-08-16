@@ -118,6 +118,47 @@ test("sanitizeReasoningEffortForProvider: Ollama Cloud preserves nested max", ()
   assert.equal((result as Record<string, unknown>).reasoning.summary, "auto");
 });
 
+test("sanitizeReasoningEffortForProvider: Ollama Cloud maps registry model xhigh → max", () => {
+  const log = makeLog();
+  const body = {
+    model: "glm-5.2",
+    reasoning_effort: "xhigh",
+    messages: [{ role: "user", content: "hi" }],
+  };
+  const result = sanitizeReasoningEffortForProvider(body, "ollama-cloud", "glm-5.2", log) as Record<
+    string,
+    unknown
+  >;
+  assert.notEqual(result, body, "must return a new object when mutating");
+  assert.equal(result.reasoning_effort, "max");
+  assert.equal(result.model, "glm-5.2", "other fields preserved");
+  assert.ok(
+    log.messages.some(([tag, m]) => tag === "REASONING_SANITIZE" && /xhigh → max/.test(m)),
+    "logs the xhigh → max mapping"
+  );
+});
+
+test("sanitizeReasoningEffortForProvider: Ollama Cloud maps passthrough unknown model xhigh → max", () => {
+  const log = makeLog();
+  const body = {
+    model: "some-future-glm-model",
+    reasoning_effort: "xhigh",
+    messages: [{ role: "user", content: "hi" }],
+  };
+  const result = sanitizeReasoningEffortForProvider(
+    body,
+    "ollama-cloud",
+    "some-future-glm-model",
+    log
+  ) as Record<string, unknown>;
+  assert.notEqual(result, body, "must return a new object when mutating");
+  assert.equal(result.reasoning_effort, "max");
+  assert.ok(
+    log.messages.some(([tag, m]) => tag === "REASONING_SANITIZE" && /xhigh → max/.test(m)),
+    "logs the xhigh → max mapping"
+  );
+});
+
 test("sanitizeReasoningEffortForProvider: OpenRouter DeepSeek passes max through (new default)", () => {
   const log = makeLog();
   const body = {
@@ -781,6 +822,45 @@ test("sanitizeReasoningEffortForProvider: opencode-go DeepSeek V4 Pro preserves 
       `opencode-go deepseek-v4-pro-${level} preserves reasoning_effort=${level}`
     );
   }
+});
+
+type EffortCarrierResult = {
+  reasoning_effort?: string;
+  reasoning?: { effort?: string };
+};
+
+test("sanitizeReasoningEffortForProvider: command-code preserves literal max", () => {
+  const body = { reasoning_effort: "max" };
+  const result = sanitizeReasoningEffortForProvider(
+    body,
+    "command-code",
+    "deepseek/deepseek-v4-flash",
+    null
+  ) as EffortCarrierResult;
+  assert.equal(result.reasoning_effort, "max");
+});
+
+test("sanitizeReasoningEffortForProvider: command-code preserves nested literal max", () => {
+  const body = { reasoning: { effort: "max" } };
+  const result = sanitizeReasoningEffortForProvider(
+    body,
+    "command-code",
+    "gpt-5.6-luna",
+    null
+  ) as EffortCarrierResult;
+  assert.equal(result.reasoning?.effort, "max");
+});
+
+test("sanitizeReasoningEffortForProvider: command-code maps normalized xhigh back to max", () => {
+  const body = { reasoning_effort: "xhigh", reasoning: { effort: "xhigh" } };
+  const result = sanitizeReasoningEffortForProvider(
+    body,
+    "command-code",
+    "gpt-5.6-luna",
+    null
+  ) as EffortCarrierResult;
+  assert.equal(result.reasoning_effort, "max");
+  assert.equal(result.reasoning?.effort, "max");
 });
 
 test("sanitizeReasoningEffortForProvider: opencode-go with non-DeepSeek model passes max through (new default)", () => {

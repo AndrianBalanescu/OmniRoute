@@ -4,6 +4,11 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mitmManagerAliasFor } from "./scripts/build/mitm-stub-flag.mjs";
 import { normalizeBasePath } from "./scripts/build/normalizeBasePath.mjs";
+import {
+  buildSecurityHeaderRules,
+  nonPageRoutePrefixes,
+  resolveDashboardEmbedMode,
+} from "./scripts/build/dashboardEmbed.mjs";
 
 const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
 const distDir = process.env.NEXT_DIST_DIR || ".build/next";
@@ -74,6 +79,11 @@ function isNextIntlExtractorDynamicImportWarning(warning) {
 // The resulting artifact is intended to be published as `omniroute-secure`
 // for security-sensitive environments. See docs/security/SOCKET_DEV_FINDINGS.md.
 const isMinimalBuild = process.env.OMNIROUTE_BUILD_PROFILE === "minimal";
+
+// #10273: `null` unless the operator opts in with DASHBOARD_ALLOW_EMBED=vscode. Read at build
+// time like every other knob in this file (OMNIROUTE_BASE_PATH, OMNIROUTE_BUILD_PROFILE, …),
+// so changing it requires a rebuild. See scripts/build/dashboardEmbed.mjs.
+const dashboardEmbedMode = resolveDashboardEmbedMode(process.env);
 
 const minimalBuildAliases = isMinimalBuild
   ? {
@@ -398,11 +408,21 @@ const nextConfig = {
   },
 
   async headers() {
+    // #10273: opt-in embedding for the VS Code Simple Browser (OmniCopilot). Off by default —
+    // `securityHeaders` then applies to `/:path*` exactly as it always has. When the operator
+    // sets DASHBOARD_ALLOW_EMBED=vscode, buildSecurityHeaderRules() splits that catch-all into
+    // two complementary rules: the API surface keeps `frame-ancestors 'none'` + X-Frame-Options,
+    // the HTML pages get `frame-ancestors 'self' vscode-webview:` and no X-Frame-Options.
+    // The exclusion list is DERIVED from the rewrite table below (self-reference is safe — the
+    // config object is fully built by the time Next calls headers()), so a future root-level API
+    // alias is excluded automatically instead of silently becoming framable.
+    const embedRules = buildSecurityHeaderRules({
+      mode: dashboardEmbedMode,
+      securityHeaders,
+      prefixes: dashboardEmbedMode ? nonPageRoutePrefixes(await nextConfig.rewrites()) : [],
+    });
     return [
-      {
-        source: "/:path*",
-        headers: securityHeaders,
-      },
+      ...embedRules,
       // G-10: allow OmniRoute's own dashboard to embed the 9Router UI via our reverse proxy.
       // `frame-ancestors 'self'` overrides the global `frame-ancestors 'none'` only for this
       // path. The route is already LOCAL_ONLY (routeGuard.ts) so remote origins cannot reach it.

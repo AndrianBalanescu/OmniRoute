@@ -235,21 +235,23 @@ export function openaiResponsesToOpenAIRequest(
 
     if (itemType === "message") {
       const role = toString(item.role);
-      // Flush pending assistant message with tool calls
-      if (currentAssistantMsg) {
-        messages.push(currentAssistantMsg);
-        currentAssistantMsg = null;
-      }
-      if (role !== "assistant" && pendingReasoningContent) {
-        messages.push({
-          role: "assistant",
-          content: null,
-          reasoning_content: pendingReasoningContent,
-        });
-        pendingReasoningContent = "";
+
+      if (role !== "assistant") {
+        if (currentAssistantMsg) {
+          messages.push(currentAssistantMsg);
+          currentAssistantMsg = null;
+        }
+        if (pendingReasoningContent) {
+          messages.push({
+            role: "assistant",
+            content: null,
+            reasoning_content: pendingReasoningContent,
+          });
+          pendingReasoningContent = "";
+        }
       }
 
-      // Flush pending tool results
+      // Flush pending tool results before the next explicit message boundary.
       if (pendingToolResults.length > 0) {
         for (const toolResult of pendingToolResults) {
           messages.push(toolResult);
@@ -292,12 +294,29 @@ export function openaiResponsesToOpenAIRequest(
           })
         : item.content;
 
-      const message: JsonRecord = { role, content };
-      if (role === "assistant" && pendingReasoningContent) {
-        message.reasoning_content = pendingReasoningContent;
-        pendingReasoningContent = "";
+      if (role === "assistant") {
+        if (!currentAssistantMsg) {
+          currentAssistantMsg = { role, content };
+        } else if (currentAssistantMsg.content == null && content != null) {
+          currentAssistantMsg.content = content;
+        } else if (content != null) {
+          const existingContent = currentAssistantMsg.content;
+          currentAssistantMsg.content = [
+            ...(Array.isArray(existingContent) ? existingContent : [existingContent]),
+            ...(Array.isArray(content) ? content : [content]),
+          ];
+        }
+        if (pendingReasoningContent) {
+          currentAssistantMsg.reasoning_content = appendReasoningContent(
+            currentAssistantMsg.reasoning_content,
+            pendingReasoningContent
+          );
+          pendingReasoningContent = "";
+        }
+        continue;
       }
-      messages.push(message);
+
+      messages.push({ role, content });
       continue;
     }
 

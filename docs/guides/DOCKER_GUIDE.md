@@ -14,6 +14,7 @@ lastUpdated: 2026-06-28
 - [With Environment File](#with-environment-file)
 - [Docker Compose](#docker-compose)
 - [Available Profiles](#available-profiles)
+- [Configuring host CLI tools when OmniRoute runs in Docker](#configuring-host-cli-tools-when-omniroute-runs-in-docker)
 - [Redis Sidecar](#redis-sidecar)
 - [Production Compose](#production-compose)
 - [Dockerfile Stages](#dockerfile-stages)
@@ -81,6 +82,61 @@ OmniRoute ships four Compose profiles. Pick the one that matches your environmen
 | `cliproxyapi`    | `cliproxyapi`    | Run the [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI) sidecar on port `8317` for upstream CLI proxying              | `docker compose --profile cliproxyapi up -d` |
 
 > Multiple profiles can be combined: `docker compose --profile cli --profile cliproxyapi up -d`.
+
+## Configuring host CLI tools when OmniRoute runs in Docker
+
+`omniroute setup-codex`, `setup-claude`, `config set <tool>` and the dashboard's
+**Save config** button all write files like `~/.codex/*.config.toml`. Those paths
+only mean something on the machine where the CLI actually runs. Run them inside
+the container and the write lands in the container's own home (`/home/node` —
+the image runs `USER node`), where no host CLI will ever read it and where it is
+discarded the moment the container is recreated.
+
+OmniRoute detects this and refuses the write with instructions instead of
+reporting a success you cannot use: the CLI exits `2`, and the API answers `422`
+with `containerEphemeralTarget: true`.
+
+### Recommended: run the CLI on the host, OmniRoute in Docker
+
+The container serves the API; the CLI configures your host tools.
+
+```bash
+docker compose --profile base up -d
+
+npm install -g omniroute
+omniroute connect http://localhost:20128   # point the CLI at the container
+omniroute setup-codex                      # writes the real ~/.codex on your host
+```
+
+This is the right choice when Codex, Claude Code, Cursor or similar run on your
+laptop — which is the usual setup.
+
+### Alternative: bind-mount the host config dirs (`host` profile)
+
+If you want the container itself to write your host config, mount the
+directories in and point `CLI_CONFIG_HOME` at the mount root. The `host` profile
+already does this:
+
+```yaml
+environment:
+  - CLI_CONFIG_HOME=/host-home
+  - CLI_ALLOW_CONFIG_WRITES=true
+volumes:
+  - ~/.codex:/host-home/.codex:rw
+  - ~/.claude:/host-home/.claude:rw
+```
+
+A bind mount is what makes the path trustworthy: OmniRoute reads
+`/proc/self/mountinfo` and allows writes to mounted paths (and to directories
+whose children are mounts, which is exactly the `/host-home` shape above) while
+still refusing unmounted ones.
+
+### Escape hatch: configure the container's own CLIs
+
+When the CLIs genuinely live inside the container (the `cli` profile), the write
+is intentional. Pass `--allow-container-write` to any `setup-*` command, or set
+`OMNIROUTE_ALLOW_CONTAINER_CONFIG_WRITE=true` for the server. The write proceeds
+with a warning that it will not survive the container.
 
 ## Redis Sidecar
 
@@ -270,7 +326,22 @@ prefix). Traefik should route `PathPrefix(`/omniroute`)` to the container withou
 `/omniroute/_next/...`.
 
 The Docker healthcheck probes `/api/monitoring/health` prefixed with the active
-`OMNIROUTE_BASE_PATH`.
+`OMNIROUTE_BASE_PATH`. That path is a **deep** check (DB + monitoring summary). It is
+appropriate for Docker’s infrequent `HEALTHCHECK`, but **not** for Kubernetes
+`livenessProbe` intervals.
+
+For orchestrators (Kubernetes, Nomad, etc.):
+
+| Probe | Prefer | Avoid |
+| --- | --- | --- |
+| Liveness | TCP on the main port (`PORT`, default `20128`), or soft HTTP `/healthz` | `/api/monitoring/health` as liveness |
+| Readiness | HTTP `GET /healthz` | Tight timeouts that treat event-loop busy as dead |
+| Deep / blackbox | `/api/monitoring/health` | — |
+
+`/healthz` only reports process lifecycle (`ok` / `starting` / `stopping`). It still
+runs on the same Node event loop as request handling, so CPU-bound catalog or
+compression work can delay it — busy ≠ dead. Full probe guidance:
+[Monitoring guide — Kubernetes probe recommendations](../ops/MONITORING_GUIDE.md#kubernetes-probe-recommendations).
 
 ## Docker Compose with Caddy (HTTPS Auto-TLS)
 
@@ -335,6 +406,57 @@ Endpoint tunnel panels (Cloudflare, Tailscale, ngrok) can be shown or hidden fro
 | `diegosouzapw/omniroute` | `3.8.0`  | ~250MB | Current version       |
 
 Multi-platform manifest: `linux/amd64` + `linux/arm64` native (Apple Silicon, AWS Graviton, Raspberry Pi). Docker selects the matching architecture automatically; pass `--platform linux/amd64` if you need to force AMD64 emulation on ARM hosts.
+
+### Release Channels
+
+OmniRoute publishes separate Docker channels for stable releases, active release-branch testing, and development builds.
+
+| Channel                         | Source                              | Mutability                  | Recommended use                                                                                 |
+| ------------------------------- | ----------------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------- |
+| `:<version>` / `:<version>-web` | Signed/versioned release            | Immutable                   | Production deployments that pin an exact release                                                |
+| `:latest` / `:latest-web`       | Highest stable release              | Mutable stable pointer      | Production deployments that intentionally follow stable releases                                |
+| `:next` / `:next-web`           | Current default `release/v*` branch | Mutable pre-release pointer | Testing fixes that have landed on the active release branch but are not yet in a stable release |
+| `:main` / `:main-web`           | `main` branch                       | Mutable development pointer | Development and integration testing only                                                        |
+
+#### Using the pre-release channel
+
+The `next` channel is rebuilt on every push to the current default `release/v*` branch and is published for both AMD64 and ARM64. Older maintenance branches cannot overwrite it. The channel provides a pullable image for fixes that have merged into the active release branch before the next stable tag is cut.
+
+```bash
+docker pull diegosouzapw/omniroute:next
+docker pull diegosouzapw/omniroute:next-web
+```
+
+For Docker Compose, override the image tag used by the selected profile, then pull and recreate the service:
+
+```yaml
+services:
+  omniroute:
+    image: diegosouzapw/omniroute:next
+```
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+#### Safety and rollback
+
+`next` is a floating pre-release channel. It may change on any push to the active release branch and is **not supported for production use**. Pin the image digest while evaluating a specific build:
+
+```bash
+docker pull diegosouzapw/omniroute:next
+docker image inspect diegosouzapw/omniroute:next --format '{{index .RepoDigests 0}}'
+```
+
+Before testing, back up the OmniRoute data volume or bind-mounted data directory. To roll back, restore the previously used stable version or digest and recreate the container:
+
+```bash
+docker pull diegosouzapw/omniroute:<stable-version>
+docker compose up -d
+```
+
+A release-branch build can never move `latest`; only an eligible stable semantic version may promote the stable pointer. The `next` images retain the release image inspection and blocking CRITICAL-vulnerability gate.
 
 ## Important Notes
 

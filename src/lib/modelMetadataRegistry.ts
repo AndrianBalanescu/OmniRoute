@@ -7,6 +7,7 @@ import {
   getResolvedModelContextOverride,
   isNonChatCatalogSurface,
 } from "@/lib/modelCapabilities";
+import { getModelCapabilityOverride } from "@/lib/db/modelCapabilityOverrides";
 import {
   getAuthoritativeContextWindow,
   getAuthoritativeProviderContextWindow,
@@ -15,7 +16,12 @@ import {
 } from "@/shared/constants/modelSpecs";
 import { AI_PROVIDERS } from "@/shared/constants/providers";
 import { PROVIDER_ID_TO_ALIAS, PROVIDER_MODELS } from "@/shared/constants/models";
-import { getSyncStatus, getSyncedCapability, getModelsDevPricing } from "@/lib/modelsDevSync";
+import {
+  getSyncStatus,
+  getSyncedCapability,
+  getModelsDevPricing,
+  type PricingByProvider,
+} from "@/lib/modelsDevSync";
 import { getSyncedPricing } from "@/lib/pricingSync";
 import { getPricingForModel as getDefaultPricingForModel } from "@/shared/constants/pricing";
 import {
@@ -30,6 +36,11 @@ export const MODEL_NOT_MAPPED = "MODEL_NOT_MAPPED";
 export const INTERNAL_PROXY_ERROR = "INTERNAL_PROXY_ERROR";
 
 type JsonRecord = Record<string, unknown>;
+
+export interface CatalogEnrichmentSnapshot {
+  modelsDevPricing: PricingByProvider | null;
+  providerNodeIdsByPrefix?: Readonly<Record<string, string>>;
+}
 
 interface CatalogDiagnosticsOptions {
   request?: Request | null;
@@ -300,16 +311,16 @@ function findInsensitive<T>(obj: Record<string, T> | null | undefined, key: stri
 
 function resolveCatalogPricing(
   provider: string | null,
-  model: string | null
+  model: string | null,
+  snapshot?: CatalogEnrichmentSnapshot
 ): Record<string, number> | null {
   if (!provider || !model) return null;
 
   // Prefer models.dev synced pricing when present; fall back to hardcoded defaults.
   try {
-    const modelsDev = getModelsDevPricing() as Record<
-      string,
-      Record<string, Record<string, number>>
-    >;
+    const modelsDev = (
+      snapshot ? snapshot.modelsDevPricing || {} : getModelsDevPricing()
+    ) as Record<string, Record<string, Record<string, number>>>;
     const providerPricing =
       findInsensitive(modelsDev, provider) ||
       findInsensitive(modelsDev, provider.replace(/-cn$/, ""));
@@ -391,11 +402,14 @@ function resolveCatalogPricing(
 
 export function enrichCatalogModelEntry<T extends JsonRecord>(
   entry: T,
-  input?: { provider?: string | null; model?: string | null }
+  input?: { provider?: string | null; model?: string | null },
+  snapshot?: CatalogEnrichmentSnapshot
 ): T {
-  const provider =
+  const publicProvider =
     input?.provider ||
     (typeof entry.owned_by === "string" && entry.owned_by !== "combo" ? entry.owned_by : null);
+  const provider =
+    (publicProvider && snapshot?.providerNodeIdsByPrefix?.[publicProvider]) || publicProvider;
   const model =
     input?.model ||
     asNonEmptyString(entry.root) ||
@@ -418,6 +432,7 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
   const authoritativeContextWindow =
     getAuthoritativeProviderContextWindow(metadata.provider, metadata.model) ??
     getAuthoritativeProviderContextWindow(provider, model) ??
+    getAuthoritativeProviderContextWindow(publicProvider, model) ??
     getAuthoritativeContextWindow(metadata.model) ??
     getAuthoritativeContextWindow(model);
   const specialtySurface = isNonChatCatalogSurface(entry.type);
@@ -512,7 +527,18 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
     delete nextEntry.context_length;
   }
 
-  if (typeof metadata.limits.maxOutputTokens === "number" && metadata.limits.maxOutputTokens > 0) {
+  const persistedOutputLimit =
+    getModelCapabilityOverride(provider, model, "max_output_tokens") ??
+    getModelCapabilityOverride(provider, model, "max_token") ??
+    getModelCapabilityOverride(publicProvider, model, "max_output_tokens") ??
+    getModelCapabilityOverride(publicProvider, model, "max_token");
+  if (persistedOutputLimit !== null) {
+    nextEntry.max_output_tokens = persistedOutputLimit;
+  } else if (
+    typeof nextEntry.max_output_tokens !== "number" &&
+    typeof metadata.limits.maxOutputTokens === "number" &&
+    metadata.limits.maxOutputTokens > 0
+  ) {
     nextEntry.max_output_tokens = metadata.limits.maxOutputTokens;
   }
 
@@ -537,7 +563,7 @@ export function enrichCatalogModelEntry<T extends JsonRecord>(
   }
 
   if (nextEntry.pricing == null) {
-    const pricing = resolveCatalogPricing(provider, model);
+    const pricing = resolveCatalogPricing(provider, model, snapshot);
     if (pricing) nextEntry.pricing = pricing;
   }
 

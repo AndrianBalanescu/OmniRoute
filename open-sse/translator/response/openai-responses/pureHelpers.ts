@@ -60,8 +60,17 @@ function isDroppableEmptyEntry(entry, propSchema, required, key, allowlisted) {
 // no-default optional enum properties to accept `null`, meaning "omitted" (OpenAI's own
 // nullable-union idiom for Responses-API strict mode). Drop the key when the model
 // follows that idiom for a non-required, schema-declared property.
-function isDroppableNullEntry(entry, propSchema, required, key) {
-  return entry === null && propSchema != null && !required.has(key);
+function isDroppableNullEntry(entry, propSchema, required, key, toolName) {
+  if (entry !== null) return false;
+  if (toolName === "Agent") return true;
+  if (propSchema == null) return false;
+  const omissionSentinel =
+    typeof propSchema === "object" &&
+    Array.isArray(propSchema.enum) &&
+    propSchema.enum.includes(null) &&
+    typeof propSchema.description === "string" &&
+    propSchema.description.includes("null = omit this parameter");
+  return !required.has(key) || omissionSentinel;
 }
 
 function stripEmptyOptionalToolArgsObject(value, toolName, schema) {
@@ -75,7 +84,7 @@ function stripEmptyOptionalToolArgsObject(value, toolName, schema) {
     if (
       matchesSchemaDefault(propSchema, entry) ||
       isDroppableEmptyEntry(entry, propSchema, required, key, allowlisted) ||
-      isDroppableNullEntry(entry, propSchema, required, key)
+      isDroppableNullEntry(entry, propSchema, required, key, toolName)
     ) {
       delete cleaned[key];
     }
@@ -99,7 +108,11 @@ export function stripEmptyOptionalToolArgs(value, toolName, schema) {
   if (typeof value === "string") {
     // JSON-string cleanup runs for allowlisted tools, or for any tool once a schema is
     // supplied (schema-aware normalization is not restricted to the allowlist).
-    if (!hasUsableSchema(schema) && !STRIPPABLE_EMPTY_ARG_TOOLS.has(toolName)) return value;
+    // "Agent" also passes without a schema: isDroppableNullEntry drops its null
+    // omission sentinels even when the strict schema snapshot is unavailable (#9423).
+    if (!hasUsableSchema(schema) && !STRIPPABLE_EMPTY_ARG_TOOLS.has(toolName) && toolName !== "Agent") {
+      return value;
+    }
     try {
       const parsed = JSON.parse(value);
       if (Array.isArray(parsed) || typeof parsed !== "object" || parsed === null) return value;

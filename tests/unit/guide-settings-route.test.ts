@@ -11,6 +11,7 @@ const guideSettingsRoute =
 
 const DUMMY_HOME = path.join(os.tmpdir(), "omniroute-guide-settings-test-" + Date.now());
 const OPENCODE_CONFIG_PATH = path.join(DUMMY_HOME, ".config", "opencode", "opencode.json");
+const OPENCODE_JSONC_CONFIG_PATH = path.join(DUMMY_HOME, ".config", "opencode", "opencode.jsonc");
 // cliRuntime.ts hermes entry maps to .config/hermes/config.json (not .hermes/config.yaml)
 const HERMES_CONFIG_PATH = path.join(DUMMY_HOME, ".config", "hermes", "config.json");
 const originalXDG = process.env.XDG_CONFIG_HOME;
@@ -200,4 +201,25 @@ test("guide-settings POST preserves existing OpenCode config fields while only u
     "cx/gpt-5.6-sol": { name: "GPT-5.6 Sol" },
     "opencode-go/kimi-k2.6": { name: "Kimi K2.6" },
   });
+});
+
+test("guide-settings POST refuses to overwrite an invalid opencode.jsonc (#10227)", async () => {
+  const invalidJsonc = "{ invalid jsonc\n";
+  await fs.mkdir(path.dirname(OPENCODE_JSONC_CONFIG_PATH), { recursive: true });
+  await fs.writeFile(OPENCODE_JSONC_CONFIG_PATH, invalidJsonc, "utf-8");
+
+  const req = await buildRequest("opencode", {
+    baseUrl: "http://my-omni/v1",
+    apiKey: "sk-123",
+    models: ["cx/gpt-5.6-sol"],
+  });
+  const response = (await guideSettingsRoute.POST(req, {
+    params: { toolId: "opencode" },
+  })) as Response;
+  const data = (await response.json()) as { error?: string };
+
+  assert.equal(response.status, 500);
+  assert.match(data.error || "", /invalid JSONC.*refusing to overwrite/i);
+  assert.equal(await fs.readFile(OPENCODE_JSONC_CONFIG_PATH, "utf-8"), invalidJsonc);
+  await assert.rejects(fs.access(OPENCODE_CONFIG_PATH));
 });

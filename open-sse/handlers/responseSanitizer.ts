@@ -8,6 +8,7 @@ import {
   collapseExcessiveNewlines,
   extractThinkingFromContent,
 } from "./responseSanitizer/reasoning.ts";
+import { applyCacheHitTokensToUsage, applyCacheHitTokensToResponsesUsage } from "./responseSanitizer/cacheHitTokens.ts";
 export {
   extractThinkingFromContent,
   shouldParseTextualReasoningTags,
@@ -30,7 +31,7 @@ const ALLOWED_USAGE_FIELDS = new Set([
   "total_tokens",
   "cached_tokens",
   "prompt_tokens_details",
-  "completion_tokens_details",
+  "completion_tokens_details", "cache_read_input_tokens", "cache_creation_input_tokens",
   // Keep through sanitize → applyClientUsageBuffer so heuristic web usage is
   // not inflated by the default USAGE_TOKEN_BUFFER (2000).
   "estimated",
@@ -257,6 +258,14 @@ export interface SanitizeOpenAIResponseOptions {
 }
 
 export function sanitizeOpenAIResponse(
+  body: JsonRecord,
+  options?: SanitizeOpenAIResponseOptions
+): JsonRecord;
+export function sanitizeOpenAIResponse(
+  body: unknown,
+  options?: SanitizeOpenAIResponseOptions
+): unknown;
+export function sanitizeOpenAIResponse(
   body: unknown,
   options: SanitizeOpenAIResponseOptions = {}
 ): unknown {
@@ -309,6 +318,8 @@ export function sanitizeOpenAIResponse(
   return sanitized;
 }
 
+export function sanitizeResponsesApiResponse(body: JsonRecord): JsonRecord;
+export function sanitizeResponsesApiResponse(body: unknown): unknown;
 export function sanitizeResponsesApiResponse(body: unknown): unknown {
   const bodyRecord = toRecord(body);
   if (!bodyRecord) return body;
@@ -495,7 +506,7 @@ function sanitizeUsage(usage: unknown): unknown {
       sanitized[key] = usageRecord[key];
     }
   }
-
+  applyCacheHitTokensToUsage(usageRecord, sanitized); // DeepSeek/MiniMax/Bedrock cache-hit passthrough (#8171)
   // Ensure required fields
   const promptTokens = toNumber(sanitized.prompt_tokens) ?? 0;
   const completionTokens = toNumber(sanitized.completion_tokens) ?? 0;
@@ -531,6 +542,29 @@ function sanitizeResponsesUsage(usage: unknown): unknown {
     normalized.output_tokens_details === undefined
   ) {
     normalized.output_tokens_details = normalized.completion_tokens_details;
+  }
+
+  // DeepSeek native API: map flat prompt_cache_hit_tokens into input_tokens_details
+  if (
+    normalized.prompt_cache_hit_tokens !== undefined &&
+    !(toRecord(normalized.input_tokens_details) ?? {}).cached_tokens
+  ) {
+    normalized.input_tokens_details = {
+      ...(normalized.input_tokens_details as Record<string, unknown> || {}),
+      cached_tokens: normalized.prompt_cache_hit_tokens,
+    };
+  }
+
+  // MiniMax / Bedrock: flat cache_read_input_tokens → input_tokens_details.cached_tokens
+  if (
+    normalized.cache_read_input_tokens !== undefined &&
+    normalized.cache_read_input_tokens !== 0 &&
+    !(toRecord(normalized.input_tokens_details) ?? {}).cached_tokens
+  ) {
+    normalized.input_tokens_details = {
+      ...(normalized.input_tokens_details as Record<string, unknown> || {}),
+      cached_tokens: normalized.cache_read_input_tokens,
+    };
   }
 
   const inputDetails = toRecord(normalized.input_tokens_details) || {};

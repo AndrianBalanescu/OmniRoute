@@ -322,4 +322,38 @@ describe("resolveOpencodeConfigPath — cross-platform", () => {
     );
     assert.equal(result, path.join("D:\\xdg", "opencode", "opencode.json"));
   });
+
+  it("selects an existing opencode.jsonc instead of inventing opencode.json (#10227)", () => {
+    const xdgRoot = createTempDir();
+    const configDir = path.join(xdgRoot, "opencode");
+    const jsoncPath = path.join(configDir, "opencode.jsonc");
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(jsoncPath, "{\n  // native OpenCode config\n}\n");
+
+    const result = resolveOpencodeConfigPathFn(
+      process.platform,
+      { XDG_CONFIG_HOME: xdgRoot },
+      os.homedir()
+    );
+
+    assert.equal(result, jsoncPath);
+  });
+
+  it("prefers opencode.jsonc when both native filenames exist (#10227)", () => {
+    const xdgRoot = createTempDir();
+    const configDir = path.join(xdgRoot, "opencode");
+    const jsonPath = path.join(configDir, "opencode.json");
+    const jsoncPath = path.join(configDir, "opencode.jsonc");
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(jsonPath, "{}\n");
+    fs.writeFileSync(jsoncPath, "{}\n");
+
+    const result = resolveOpencodeConfigPathFn(
+      process.platform,
+      { XDG_CONFIG_HOME: xdgRoot },
+      os.homedir()
+    );
+
+    assert.equal(result, jsoncPath);
+  });
 });

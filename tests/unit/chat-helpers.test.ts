@@ -163,7 +163,16 @@ test("resolveModelOrError routes Codex native compact gpt-5.5 requests to Codex"
   assert.equal(result.model, "gpt-5.5");
 });
 
-test("resolveModelOrError keeps non-Codex gpt-5.5 Responses requests on OpenAI", async () => {
+test("resolveModelOrError routes bare gpt-5.5 Responses requests to Codex regardless of client user-agent", async () => {
+  // #9275: gpt-5.5 is in CODEX_NATIVE_UNPREFIXED_MODELS — bare-id requests
+  // route to codex even from a non-Codex-CLI client, so the Codex CLI default
+  // is honored deterministically instead of racing other providers that also
+  // catalog the id. #9447 bounded that precedence: it only PREEMPTS another
+  // provider when a codex connection is actually ACTIVE, so this case seeds
+  // one first. Prefix the model id (e.g. openai/gpt-5.5) to opt into a
+  // different provider.
+  await seedConnection("codex");
+
   const result = await resolveModelOrError(
     "gpt-5.5",
     { model: "gpt-5.5", input: "hello" },
@@ -171,7 +180,7 @@ test("resolveModelOrError keeps non-Codex gpt-5.5 Responses requests on OpenAI",
     { "user-agent": "OpenAI/Node" }
   );
 
-  assert.equal(result.provider, "openai");
+  assert.equal(result.provider, "codex");
   assert.equal(result.model, "gpt-5.5");
 });
 
@@ -191,6 +200,11 @@ test("resolveModelOrError routes bare gpt-5.5 to Codex medium when Codex is the 
 });
 
 test("resolveModelOrError keeps bare gpt-5.5 on OpenAI when OpenAI is the only active account", async () => {
+  // #9447 bounded the #9275 codex-first default: the Codex-native preference
+  // may only PREEMPT another provider when a codex connection is ACTIVE. An
+  // OpenAI-only install must not have bare gpt-5.5 sent to codex only to fail
+  // with "no active credentials for provider: codex" on a model OpenAI
+  // serves — it routes to the provider that can actually serve it.
   await seedConnection("openai");
 
   const result = await resolveModelOrError(
@@ -202,6 +216,37 @@ test("resolveModelOrError keeps bare gpt-5.5 on OpenAI when OpenAI is the only a
 
   assert.equal(result.provider, "openai");
   assert.equal(result.model, "gpt-5.5");
+});
+
+test("resolveModelOrError honors a custom-model targetFormat override even when the model id also exists in the static provider registry", async () => {
+  // #8852-followup: "claude-sonnet-4-6" is a real static registry entry under
+  // "vertex" (see open-sse/config/providers/registry/vertex/index.ts) with no
+  // per-model targetFormat, so the provider default ("gemini") normally applies.
+  // A user who manually added the same id as a custom model with an explicit
+  // "claude" targetFormat override must have that override win — otherwise
+  // Vertex's native Anthropic response shape gets mistranslated as Gemini's,
+  // silently dropping all response content.
+  await seedConnection("vertex");
+  const modelsDb = await import("../../src/lib/db/models.ts");
+  await modelsDb.addCustomModel(
+    "vertex",
+    "claude-sonnet-4-6",
+    "Claude Sonnet 4.6 (Vertex)",
+    "manual",
+    "chat-completions",
+    ["chat"],
+    "claude"
+  );
+
+  const result = await resolveModelOrError(
+    "vertex/claude-sonnet-4-6",
+    { model: "vertex/claude-sonnet-4-6", messages: [{ role: "user", content: "hi" }] },
+    "/v1/chat/completions"
+  );
+
+  assert.equal(result.provider, "vertex");
+  assert.equal(result.model, "claude-sonnet-4-6");
+  assert.equal(result.targetFormat, "claude");
 });
 
 test("checkPipelineGates blocks providers with an open circuit breaker", async () => {

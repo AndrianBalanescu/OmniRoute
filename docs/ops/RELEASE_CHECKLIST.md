@@ -65,6 +65,7 @@ directly from anywhere — CI can only stage; only the owner's 2FA releases.
 as the default reflex (minutes, reversible); `npm unpublish` only inside the 72h/no-dependents
 window and never as the first move. Docker: never rewrite a version tag — rollback is
 repointing `latest` to the last good digest.
+
 ## Hotfix Fast-Lane (label `hotfix`)
 
 A PR labeled `hotfix` skips the heavy CI matrix (9-shard E2E, coverage ratchet,
@@ -124,7 +125,7 @@ matrix automatically, without any label.
 - [ ] `npm run test:vitest` — pass (MCP server, autoCombo, cache)
 - [ ] `npm run test:coverage` — gate 60/60/60/60 satisfied (statements/lines/functions/branches)
 - [ ] `npm run test:integration` — pass (if changes touch DB / handlers)
-- [ ] `npm run test:combo:matrix` — pass (combo strategy matrix: proves all 17 routing strategies' selection decisions deterministically; run when touching combo routing, strategy resolution, or fallback logic)
+- [ ] `npm run test:combo:matrix` — pass (combo strategy matrix: proves all 19 public routing strategies' selection decisions deterministically; run when touching combo routing, strategy resolution, or fallback logic)
 - [ ] `RUN_COMBO_LIVE=1 npm run test:combo:live` — **optional/manual** (gated real-upstream smoke; sources a read-only DB snapshot from VPS `root@192.168.0.15`; hits real providers, costs credits; never runs in CI; skips cleanly without the gate)
 - [ ] `npm run test:combo:live:vps` — **optional/manual** (Phase-3 VPS live smoke: 7 HTTP scenarios against the live `.15` server via plain Node ESM; requires `ssh root@192.168.0.15`; creates/deletes only `__live_test__*` combos; hits real providers; never runs in CI)
 - [ ] `npm run test:e2e` — pass (UI changes)
@@ -169,7 +170,7 @@ Breaking changes: add `BREAKING CHANGE:` footer or `!` after the scope (e.g. `fe
 
 - [ ] `npm run i18n:check` exits 0 — translation state (`.i18n-state.json`) in sync with source docs (no drifted sources in strict mode; warn-mode advisory is acceptable for last-minute doc touch-ups, but should be 0 before tagging)
 - [ ] `npm run i18n:check-ui-coverage` exits 0 — every UI locale at or above the 80% coverage floor
-- [ ] `npm run i18n:sync-ui:dry` reports 0 missing keys across all 42 locales
+- [ ] `npm run i18n:sync-ui:dry` reports 0 missing keys across all 43 locales
 - [ ] If source English docs changed, run `npm run i18n:run` (requires `OMNIROUTE_TRANSLATION_API_KEY` in `.env`) before tagging
 - [ ] Translation contributions can be deferred to next release if minor (track in CHANGELOG)
 
@@ -275,6 +276,22 @@ Deploy skills use the light rsync flow — no `npm pack`, no `npm i -g`:
 - [ ] Update GitHub Discussions / Discord with release announcement
 - [ ] Open milestone for next version
 - [ ] If critical: pin discussion or post in `news.json` for in-app banner
+
+### Radar public-launch gate
+
+The Radar announcement is intentionally committed with `active: false`. Activation is a separate
+change after every item below is evidenced:
+
+- [ ] All stacked Radar PRs are merged and the release-tip CI is green
+- [ ] Deploy and smoke the OSS Radar routes with `RADAR_ENABLED` still off by default
+- [ ] Smoke `GET /planos`, `/termos`, `/privacidade`, and `/reembolso` on the named Radar host
+- [ ] Record operator identity/contact/address and owner-approved legal review in the private service
+- [ ] Exercise Stripe Checkout and the signed webhook in test mode only
+- [ ] Exercise one encrypted transactional-email delivery with the approved sender/domain
+- [ ] Prove backup restore and one supervised, budget-capped research run
+- [ ] Approve the BRL/PIX review policy before accepting donation evidence
+- [ ] Enable public Checkout only after the preceding gates, then activate the new `news.json` ID
+- [ ] Verify the Home banner uses localized copy and a new ID reappears after an older ID is dismissed
 
 ## Embedded Services smoke (v3.8.4+)
 

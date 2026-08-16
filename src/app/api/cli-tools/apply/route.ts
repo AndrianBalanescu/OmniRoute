@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { generateConfig } from "@/lib/cli-helper/config-generator";
+import { guardCliConfigWrite } from "@/lib/api/cliConfigWriteGuard";
 
 const applySchema = z.object({
   toolId: z.string().min(1),
@@ -17,10 +18,19 @@ const applySchema = z.object({
 const TOOL_CONFIG_PATHS: Record<string, string> = {
   claude: path.join(os.homedir(), ".claude", "settings.json"),
   codex: path.join(os.homedir(), ".codex", "config.yaml"),
-  opencode: path.join(os.homedir(), ".config", "opencode", "opencode.json"),
   cline: path.join(os.homedir(), ".cline", "data", "globalState.json"),
   kilocode: path.join(os.homedir(), ".config", "kilocode", "settings.json"),
   continue: path.join(os.homedir(), ".continue", "config.yaml"),
+};
+
+/** The host-side command that does the same job when OmniRoute is containerised. */
+const HOST_SETUP_COMMANDS: Record<string, string> = {
+  claude: "omniroute setup-claude",
+  codex: "omniroute setup-codex",
+  opencode: "omniroute setup-opencode",
+  cline: "omniroute setup-cline",
+  kilocode: "omniroute setup-kilo",
+  continue: "omniroute setup-continue",
 };
 
 function ensureBackup(configPath: string): string | null {
@@ -65,10 +75,18 @@ export async function POST(request: Request) {
       });
     }
 
-    const configPath = TOOL_CONFIG_PATHS[toolId];
+    const configPath = toolId === "opencode" ? result.configPath : TOOL_CONFIG_PATHS[toolId];
     if (!configPath) {
       return NextResponse.json({ error: `Unknown tool: ${toolId}` }, { status: 400 });
     }
+
+    // A container write into an unmounted path looks successful and then
+    // disappears with the container — refuse it and point at the host CLI.
+    const refusal = guardCliConfigWrite(configPath, {
+      toolLabel: toolId,
+      hostCommand: HOST_SETUP_COMMANDS[toolId],
+    });
+    if (refusal) return refusal;
 
     const backupPath = ensureBackup(configPath);
 

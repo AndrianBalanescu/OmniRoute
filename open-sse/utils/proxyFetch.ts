@@ -318,6 +318,20 @@ function isWreqProxySupported(proxyUrl: string): boolean {
   }
 }
 
+/**
+ * Redact proxy URLs (and any bare `user:pass@host` credential tokens) from an
+ * upstream transport-error message before it is surfaced. #10032 keeps the
+ * underlying failure reason in the propagated error for diagnosability, but
+ * the raw message can embed the full proxy URL — including userinfo
+ * credentials — which must never bubble into response bodies (#9837, Hard
+ * Rule #12).
+ */
+function redactProxyDetailsInMessage(message: string): string {
+  return message
+    .replace(/\b(?:https?|socks[45][ah]?|socks):\/\/\S+/gi, "[redacted-proxy]")
+    .replace(/\b[^\s:@/]+:[^\s@/]*@\S+/g, "[redacted-proxy]");
+}
+
 function sanitizeTransportError(
   error: unknown,
   message: string,
@@ -778,6 +792,16 @@ async function patchedFetch(
         tlsDirectFallback = true;
       }
     }
+    // Bun already provides a native fetch implementation with connection and
+    // stream handling. The custom undici dispatcher path is Node-oriented and
+    // can leave Bun server responses pending even though the upstream request
+    // itself succeeds. Preserve the dispatcher path for Node and TLS-fingerprint
+    // requests, but use Bun's native fetch for ordinary direct egress.
+    if (process.versions.bun) {
+      const _nativeFetch =
+        (deps.nativeFetch as FetchWithDispatcher | undefined) ?? originalFetchWithDispatcher;
+      return _nativeFetch(input, options);
+    }
     // Direct connection (no proxy) — use undici with custom dispatcher for timeout control.
     // Falls back to original native fetch if dispatcher initialization fails (#1054).
     // Retries once on transient dispatcher errors before falling back (fix: proxyfetch-undici-retry).
@@ -1096,7 +1120,12 @@ async function patchedFetch(
         continue;
       }
       tagProxyUnreachable(error);
-      const originalMsg = error instanceof Error ? error.message : String(error);
+      // #10032: keep the underlying reason for diagnosability, but redact any
+      // proxy URL / credential tokens first — this error can bubble into
+      // response bodies (#9837, Hard Rule #12).
+      const originalMsg = redactProxyDetailsInMessage(
+        error instanceof Error ? error.message : String(error)
+      );
       const sanitized = sanitizeTransportError(
         error,
         originalMsg

@@ -29,6 +29,8 @@ const { clearModelLock, isModelLocked } =
   await import("../../open-sse/services/accountFallback.ts");
 const { saveModelsDevCapabilities, clearModelsDevCapabilities } =
   await import("../../src/lib/modelsDevSync.ts");
+// Dynamic import is required after TEST_DATA_DIR is initialized above.
+const { clearReasoningCacheAll } = await import("../../open-sse/services/reasoningCache.ts");
 const {
   getBackgroundDegradationConfig,
   setBackgroundDegradationConfig,
@@ -256,6 +258,7 @@ async function resetStorage() {
   clearIdempotency();
   clearInflight();
   clearModelsDevCapabilities();
+  clearReasoningCacheAll();
   setBackgroundDegradationConfig(originalBackgroundConfig);
   resetBackgroundStats();
   globalThis.setTimeout = originalSetTimeout;
@@ -305,6 +308,7 @@ async function invokeChatCore({
   connectionId = null,
   onCredentialsRefreshed = null,
   onRequestSuccess = null,
+  sessionAffinityKey = null,
 }: any = {}) {
   const calls: any[] = [];
 
@@ -348,6 +352,7 @@ async function invokeChatCore({
       connectionId,
       apiKeyInfo,
       userAgent,
+      sessionAffinityKey,
       isCombo,
       comboStrategy,
       onCredentialsRefreshed,
@@ -523,6 +528,43 @@ test("chatCore honors providerSpecificData.apiType for legacy openai-compatible 
   assert.equal("messages" in call.body, false);
   assert.equal(payload.choices[0].message.content, "ok");
 });
+test("chatCore translates a streaming Responses upstream for a Chat client", async () => {
+  const { call, result } = await invokeChatCore({
+    provider: "openai-compatible-sp-openai",
+    model: "gpt-5.4",
+    endpoint: "/v1/chat/completions",
+    accept: "text/event-stream",
+    credentials: {
+      apiKey: "sk-test",
+      providerSpecificData: {
+        apiType: "responses",
+        baseUrl: "https://proxy.example.com/v1",
+        prefix: "sp-openai",
+      },
+    },
+    body: {
+      model: "gpt-5.4",
+      stream: true,
+      messages: [{ role: "user", content: "Reply with OK only." }],
+    },
+    responseFactory: () =>
+      new Response(
+        [
+          'data: {"type":"response.output_text.delta","delta":"ok"}',
+          "",
+          'data: {"type":"response.completed","response":{"id":"resp_stream","status":"completed","output":[],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}',
+          "",
+        ].join("\n"),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } }
+      ),
+  });
+
+  assert.equal(result.success, true);
+  assert.match(call.url, /\/responses$/);
+  const streamed = await result.response.text();
+  assert.match(streamed, /"content":"ok"/);
+  assert.match(streamed, /data: \[DONE\]/);
+});
 test("chatCore applies Responses input policy to openai-compatible targets", async () => {
   const reasoningItems = [
     { id: "rs_valid", type: "reasoning", encrypted_content: "encrypted-blob" },
@@ -562,6 +604,180 @@ test("chatCore applies Responses input policy to openai-compatible targets", asy
     );
     assert.equal(input.find((item) => item.type === "function_call")?.id, undefined);
   }
+});
+
+test("chatCore replays no-tool reasoning across public Responses turns", async () => {
+  // Direct DeepSeek now speaks Responses upstream. Keep this regression on a
+  // Chat-compatible DeepSeek host so it continues to exercise the Responses-to-Chat replay path.
+  saveModelsDevCapabilities({
+    siliconflow: {
+      "deepseek-v4-pro": {
+        ...capabilityEntry(128_000),
+        reasoning: true,
+        interleaved_field: null,
+      },
+    },
+  });
+  const sessionAffinityKey = "header:reasoning-replay-session";
+  const apiKeyInfo = { id: "reasoning-replay-key" };
+  const responseFactory = () =>
+    new Response(
+      JSON.stringify({
+        id: "chatcmpl-reasoning",
+        object: "chat.completion",
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: "assistant",
+              content: "Hello! How can I help?",
+              reasoning_content: "Authentic upstream reasoning",
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+
+  const first = await invokeChatCore({
+    provider: "siliconflow",
+    model: "deepseek-v4-pro",
+    endpoint: "/v1/responses",
+    body: {
+      model: "deepseek-v4-pro",
+      stream: false,
+      reasoning: { effort: "high" },
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
+    },
+    apiKeyInfo,
+    sessionAffinityKey,
+    responseFactory,
+  });
+  assert.equal(first.result.success, true);
+
+  const second = await invokeChatCore({
+    provider: "siliconflow",
+    model: "deepseek-v4-pro",
+    endpoint: "/v1/responses",
+    body: {
+      model: "deepseek-v4-pro",
+      stream: false,
+      reasoning: { effort: "high" },
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] },
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Hello! How can I help?" }],
+        },
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "tell me more" }],
+        },
+      ],
+    },
+    apiKeyInfo,
+    sessionAffinityKey,
+    responseFactory,
+  });
+
+  assert.equal(second.result.success, true);
+  assert.equal(second.call.body.messages[1].reasoning_content, "Authentic upstream reasoning");
+});
+test("chatCore captures streaming no-tool reasoning for Responses replay", async () => {
+  saveModelsDevCapabilities({
+    siliconflow: {
+      "deepseek-v4-pro": {
+        ...capabilityEntry(128_000),
+        reasoning: true,
+        interleaved_field: null,
+      },
+    },
+  });
+  const sessionAffinityKey = "header:streaming-reasoning-replay-session";
+  const apiKeyInfo = { id: "streaming-reasoning-replay-key" };
+  const streamResponseFactory = () =>
+    new Response(
+      [
+        `data: ${JSON.stringify({
+          id: "chatcmpl-stream-reasoning",
+          object: "chat.completion.chunk",
+          choices: [
+            {
+              index: 0,
+              delta: {
+                role: "assistant",
+                reasoning_content: "Authentic streaming reasoning",
+              },
+            },
+          ],
+        })}`,
+        `data: ${JSON.stringify({
+          id: "chatcmpl-stream-reasoning",
+          object: "chat.completion.chunk",
+          choices: [{ index: 0, delta: { content: "Streamed answer" } }],
+        })}`,
+        `data: ${JSON.stringify({
+          id: "chatcmpl-stream-reasoning",
+          object: "chat.completion.chunk",
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        })}`,
+        "data: [DONE]",
+        "",
+      ].join("\n\n"),
+      { status: 200, headers: { "Content-Type": "text/event-stream" } }
+    );
+
+  const first = await invokeChatCore({
+    provider: "siliconflow",
+    model: "deepseek-v4-pro",
+    endpoint: "/v1/responses",
+    body: {
+      model: "deepseek-v4-pro",
+      stream: true,
+      reasoning: { effort: "high" },
+      input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
+    },
+    apiKeyInfo,
+    sessionAffinityKey,
+    responseFactory: streamResponseFactory,
+  });
+  assert.equal(first.result.success, true);
+  await first.result.response.text();
+  await flushAsyncSideEffects();
+
+  const second = await invokeChatCore({
+    provider: "siliconflow",
+    model: "deepseek-v4-pro",
+    endpoint: "/v1/responses",
+    body: {
+      model: "deepseek-v4-pro",
+      stream: false,
+      reasoning: { effort: "high" },
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] },
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Streamed answer" }],
+        },
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "tell me more" }],
+        },
+      ],
+    },
+    apiKeyInfo,
+    sessionAffinityKey,
+    responseFactory: () => buildOpenAIResponse(false),
+  });
+
+  assert.equal(second.result.success, true);
+  assert.equal(second.call.body.messages[1].reasoning_content, "Authentic streaming reasoning");
 });
 test("chatCore preserves opted-in encrypted reasoning for Codex", async () => {
   const { call, result } = await invokeChatCore({
@@ -861,7 +1077,10 @@ test("chatCore preserves Opus 5 mid-conversation system cache breakpoints", asyn
     call.body.messages.map((message: { role: string }) => message.role),
     ["user", "assistant", "system", "user"]
   );
-  assert.deepEqual(call.body.messages[2].content[0].cache_control, { type: "ephemeral" });
+  assert.deepEqual(call.body.messages[2].content[0].cache_control, {
+    type: "ephemeral",
+    ttl: "1h",
+  });
   assert.equal(
     call.body.system.some((block: { text?: string }) => block.text === "compact continuation"),
     false
@@ -1037,7 +1256,10 @@ test("chatCore preserves cache_control automatically for Claude Code single-mode
   assert.equal(hasCacheControl(call.body), true);
   // system[0] and system[1] are now the billing line and sentinel injected by base.ts for Claude Code
   assert.deepEqual(call.body.system[2].cache_control, { type: "ephemeral", ttl: "5m" });
-  assert.deepEqual(call.body.messages[0].content[0].cache_control, { type: "ephemeral" });
+  assert.deepEqual(call.body.messages[0].content[0].cache_control, {
+    type: "ephemeral",
+    ttl: "1h",
+  });
   // base.ts executor explicitly strips cache_control from tools for Claude Code clients
   assert.equal(call.body.tools[0].cache_control, undefined);
 });
@@ -1083,7 +1305,10 @@ test("chatCore supplements a missing message cache breakpoint for native Claude 
     responseFormat: "claude",
   });
 
-  assert.deepEqual(call.body.messages[2].content[0].cache_control, { type: "ephemeral" });
+  assert.deepEqual(call.body.messages[2].content[0].cache_control, {
+    type: "ephemeral",
+    ttl: "1h",
+  });
   assert.equal(call.body.tools[0].cache_control, undefined);
 });
 test("chatCore auto cache policy becomes false for nondeterministic combos", async () => {
@@ -1171,7 +1396,10 @@ test("chatCore disables raw Claude passthrough when cache preservation is off an
     true
   );
   // Cache preservation is on for native Claude, so cache markers are intact
-  assert.deepEqual(call.body.messages[0].content[0].cache_control, { type: "ephemeral" });
+  assert.deepEqual(call.body.messages[0].content[0].cache_control, {
+    type: "ephemeral",
+    ttl: "1h",
+  });
   // Tools disable flag is applied
   assert.equal("_disableToolPrefix" in call.body, false);
 });
@@ -1314,7 +1542,7 @@ test("chatCore strips unsupported reasoning params and caps provider token field
   assert.equal(call.body.max_tokens, undefined);
   assert.equal(call.body.max_completion_tokens, 16384);
 });
-test("chatCore preserves reasoning_effort for assistant-prefill OpenAI-compatible requests", async () => {
+test("chatCore downgrades unsupported xhigh effort for assistant-prefill OpenAI-compatible requests", async () => {
   const { call, result } = await invokeChatCore({
     provider: "openai-compatible-aio",
     model: "glm-5.1",
@@ -1333,7 +1561,7 @@ test("chatCore preserves reasoning_effort for assistant-prefill OpenAI-compatibl
 
   assert.equal(result.success, true);
   assert.equal(call.body.model, "glm-5.1");
-  assert.equal(call.body.reasoning_effort, "xhigh");
+  assert.equal(call.body.reasoning_effort, "high");
 });
 test("chatCore logs chat completions endpoint as OpenAI protocol", async () => {
   const { call, result } = await invokeChatCore({
@@ -2031,7 +2259,7 @@ test("chatCore 429 lets account fallback apply the configured resilience cooldow
   assert.equal((afterFallback as any).testStatus, "unavailable");
   assert.ok(cooldownRemaining > 0 && cooldownRemaining <= 2_000);
 });
-test("chatCore falls back to the next family model when the requested model is unavailable", async () => {
+test("chatCore does not substitute an OpenAI model after model-unavailable", async () => {
   const { calls, result } = await invokeChatCore({
     provider: "openai",
     model: "gpt-5.1",
@@ -2047,17 +2275,15 @@ test("chatCore falls back to the next family model when the requested model is u
           headers: { "Content-Type": "application/json" },
         });
       }
-      return buildOpenAIResponse(false, "family fallback ok");
+      return buildOpenAIResponse(false, "unexpected fallback");
     },
   });
 
-  const payload = (await result.response.json()) as any;
-  assert.equal(result.success, true);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].body.model, "gpt-5.1-mini");
-  assert.equal(payload.choices[0].message.content, "family fallback ok");
+  assert.equal(result.success, false);
+  assert.equal(result.status, 404);
+  assert.equal(calls.length, 1);
 });
-test("chatCore falls back to a larger-context sibling when the request overflows context", async () => {
+test("chatCore does not substitute an OpenAI model after context overflow", async () => {
   saveModelsDevCapabilities({
     unknown: {
       "gpt-5": capabilityEntry(128_000),
@@ -2081,15 +2307,13 @@ test("chatCore falls back to a larger-context sibling when the request overflows
           headers: { "Content-Type": "application/json" },
         });
       }
-      return buildOpenAIResponse(false, "larger context fallback");
+      return buildOpenAIResponse(false, "unexpected fallback");
     },
   });
 
-  const payload = (await result.response.json()) as any;
-  assert.equal(result.success, true);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].body.model, "gpt-4o");
-  assert.equal(payload.choices[0].message.content, "larger context fallback");
+  assert.equal(result.success, false);
+  assert.equal(result.status, 400);
+  assert.equal(calls.length, 1);
 });
 test("chatCore parses upstream SSE payloads for non-streaming requests", async () => {
   const { result } = await invokeChatCore({
@@ -2151,7 +2375,7 @@ test("chatCore rejects malformed non-streaming JSON payloads", async () => {
   assert.equal(result.status, 502);
   assert.equal(result.error, "Invalid JSON response from provider");
 });
-test("chatCore falls back after an empty-content success response", async () => {
+test("chatCore does not substitute an OpenAI model after empty content", async () => {
   const { calls, result } = await invokeChatCore({
     provider: "openai",
     model: "gpt-5.1",
@@ -2181,17 +2405,15 @@ test("chatCore falls back after an empty-content success response", async () => 
           }
         );
       }
-      return buildOpenAIResponse(false, "empty-content fallback ok");
+      return buildOpenAIResponse(false, "unexpected fallback");
     },
   });
 
-  const payload = (await result.response.json()) as any;
-  assert.equal(result.success, true);
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].body.model, "gpt-5.1-mini");
-  assert.equal(payload.choices[0].message.content, "empty-content fallback ok");
+  assert.equal(result.success, false);
+  assert.equal(result.status, 502);
+  assert.equal(calls.length, 1);
 });
-test("chatCore returns a gateway error when the empty-content fallback responds with invalid JSON", async () => {
+test("chatCore returns a gateway error without probing another OpenAI model", async () => {
   const { result, calls } = await invokeChatCore({
     provider: "openai",
     model: "gpt-5.1",
@@ -2232,8 +2454,7 @@ test("chatCore returns a gateway error when the empty-content fallback responds 
   assert.equal(result.success, false);
   assert.equal(result.status, 502);
   assert.equal(result.error, "Provider returned empty content");
-  assert.equal(calls.length, 2);
-  assert.equal(calls[1].body.model, "gpt-5.1-mini");
+  assert.equal(calls.length, 1);
 });
 test("chatCore records Claude prompt cache and cache usage metadata in call logs", async () => {
   await settingsDb.updateSettings({ alwaysPreserveClientCache: "always" });

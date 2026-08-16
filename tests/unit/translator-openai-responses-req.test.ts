@@ -85,6 +85,94 @@ test("Responses -> Chat converts instructions, inputs, function calls, outputs, 
   });
 });
 
+test("Responses -> Chat keeps assistant text, reasoning, and function calls in one turn", () => {
+  const result = openaiResponsesToOpenAIRequest(
+    "gpt-4o",
+    {
+      input: [
+        {
+          type: "reasoning",
+          summary: [{ type: "summary_text", text: "Inspect first" }],
+        },
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "I will inspect" }],
+        },
+        { type: "function_call", call_id: "call_1", name: "read_file", arguments: "{}" },
+        { type: "function_call", call_id: "call_2", name: "search", arguments: "{}" },
+        { type: "function_call_output", call_id: "call_1", output: "contents" },
+      ],
+    },
+    false,
+    { _preserveReasoningContent: true }
+  ) as { messages: Array<Record<string, unknown>> };
+
+  assert.equal(result.messages.length, 2);
+  assert.deepEqual(result.messages[0], {
+    role: "assistant",
+    content: [{ type: "text", text: "I will inspect" }],
+    reasoning_content: "Inspect first",
+    tool_calls: [
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "read_file", arguments: "{}" },
+      },
+      {
+        id: "call_2",
+        type: "function",
+        function: { name: "search", arguments: "{}" },
+      },
+    ],
+  });
+  assert.deepEqual(result.messages[1], {
+    role: "tool",
+    tool_call_id: "call_1",
+    content: "contents",
+  });
+});
+
+test("Responses -> Chat merges assistant text that follows a function call", () => {
+  const result = openaiResponsesToOpenAIRequest(
+    "gpt-4o",
+    {
+      input: [
+        { type: "function_call", call_id: "call_1", name: "read_file", arguments: "{}" },
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "I inspected it" }],
+        },
+        {
+          type: "reasoning",
+          summary: [{ type: "summary_text", text: "Inspection complete" }],
+        },
+        { type: "message", role: "user", content: [{ type: "input_text", text: "Continue" }] },
+      ],
+    },
+    false,
+    { _preserveReasoningContent: true }
+  ) as { messages: Array<Record<string, unknown>> };
+
+  assert.deepEqual(result.messages[0], {
+    role: "assistant",
+    content: [{ type: "text", text: "I inspected it" }],
+    tool_calls: [
+      {
+        id: "call_1",
+        type: "function",
+        function: { name: "read_file", arguments: "{}" },
+      },
+    ],
+    reasoning_content: "Inspection complete",
+  });
+  assert.deepEqual(result.messages[1], {
+    role: "user",
+    content: [{ type: "text", text: "Continue" }],
+  });
+});
+
 test("Responses -> Chat filters orphan tool outputs and supports role-based message items", () => {
   const result = openaiResponsesToOpenAIRequest(
     "gpt-4o",
@@ -925,7 +1013,12 @@ test("Responses -> Chat: tool_search is mapped to a Chat function tool, not drop
       input: [{ role: "user", content: [{ type: "input_text", text: "hello" }] }],
       tools: [
         { type: "tool_search", name: "search" },
-        { type: "function", name: "foo", description: "A function", parameters: { type: "object" } },
+        {
+          type: "function",
+          name: "foo",
+          description: "A function",
+          parameters: { type: "object" },
+        },
       ],
     },
     false,
@@ -934,7 +1027,11 @@ test("Responses -> Chat: tool_search is mapped to a Chat function tool, not drop
 
   const tools = result.tools as any[];
   assert.ok(Array.isArray(tools), "tools array must be present");
-  assert.equal(tools.some((t) => t.type === "tool_search"), false, "raw tool_search type must not survive");
+  assert.equal(
+    tools.some((t) => t.type === "tool_search"),
+    false,
+    "raw tool_search type must not survive"
+  );
   assert.equal(tools.length, 2, "mapped tool_search function + the function tool must remain");
   const toolSearch = tools.find((t) => t.function?.name === "search");
   assert.ok(toolSearch, "tool_search must be mapped to a Chat function tool named after it");

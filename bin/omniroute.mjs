@@ -23,6 +23,7 @@ import { getNodeRuntimeSupport, getNodeRuntimeWarning } from "./nodeRuntimeSuppo
 import { getDefaultDataDir } from "./cli/data-dir.mjs";
 import { shouldProvisionStorageKey } from "./cli/utils/storageKeyProvision.mjs";
 import { isVersionFastPath } from "./cli/utils/versionFastPath.mjs";
+import { parseEnvValue } from "./cli/utils/parseEnvValue.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -128,9 +129,8 @@ function loadEnvFile() {
           const eqIdx = trimmed.indexOf("=");
           if (eqIdx > 0) {
             const key = trimmed.slice(0, eqIdx).trim();
-            const value = trimmed.slice(eqIdx + 1).trim();
             if (process.env[key] === undefined) {
-              process.env[key] = value.replace(/^["']|["']$/g, "");
+              process.env[key] = parseEnvValue(trimmed.slice(eqIdx + 1));
             }
           }
         }

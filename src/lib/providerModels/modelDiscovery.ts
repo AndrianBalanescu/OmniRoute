@@ -6,6 +6,8 @@ import {
 } from "@/lib/db/models";
 import { CANONICAL_EFFORT_VALUES } from "@/shared/reasoning/effortStandardization";
 import { isObsoleteKiroModelAlias } from "@omniroute/open-sse/services/kiroModels.ts";
+import { filterChatSelectableModels } from "@omniroute/open-sse/services/modelEndpointPolicy.ts";
+import { filterSelectableModels } from "@omniroute/open-sse/services/modelLifecycle.ts";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -90,6 +92,12 @@ const thinkingLevelsSchema = z.object({ thinking: z.object({ levels: z.unknown()
 // Codex's own "ultra"), pass through unchanged — only known synonyms are mapped.
 const EFFORT_SYNONYMS: Record<string, string> = { max: "xhigh" };
 
+// CrofAI's live `/v1/models` exposes a boolean reasoning capability rather than
+// the supported tiers. Keep this provider-specific fallback explicit so the same
+// boolean is never interpreted for other discovery sources.
+// Live request testing confirms Crof accepts `max` as a distinct top tier.
+const CROF_REASONING_EFFORTS = ["none", "low", "medium", "high", "max"] as const;
+
 function normalizeSupportedEffort(effort: string): string {
   if ((CANONICAL_EFFORT_VALUES as readonly string[]).includes(effort)) return effort;
   return EFFORT_SYNONYMS[effort.toLowerCase()] || effort;
@@ -145,6 +153,27 @@ export function detectSupportedThinkingEfforts(record: JsonRecord): string[] | u
     }
   }
 
+  // neuralwatt-style upstreams wrap the same tier data one level deeper under
+  // `metadata.reasoning.supported_efforts` (their /v1/models nests capabilities
+  // and reasoning under a `metadata` object). Same semantics and validation as
+  // the top-level #7694 shape; placed right after it so a top-level declaration
+  // still wins when both are present.
+  const metadataRecord = asRecord(record.metadata);
+  const metadataParsed = reasoningSupportedEffortsSchema.safeParse(metadataRecord.reasoning);
+  if (metadataParsed.success && metadataParsed.data) {
+    const rawEfforts = metadataParsed.data.supported_efforts;
+    if (Array.isArray(rawEfforts)) {
+      const efforts = Array.from(
+        new Set(
+          rawEfforts
+            .filter((effort): effort is string => typeof effort === "string" && effort.length > 0)
+            .map(normalizeSupportedEffort)
+        )
+      );
+      if (efforts.length > 0) return efforts;
+    }
+  }
+
   // #9160: fall back to `capabilities.effort_tiers` before the legacy fields.
   // OmniRoute's own catalog surfaces effort tiers inside `capabilities.effort_tiers`,
   // which the existing `parseEffortList` already handles (string arrays).
@@ -173,11 +202,22 @@ export function detectSupportedThinkingEfforts(record: JsonRecord): string[] | u
   return undefined;
 }
 
+function hasDeclaredEffortList(record: JsonRecord): boolean {
+  if (Array.isArray(record.supportedThinkingEfforts)) return true;
+  if (Array.isArray(asRecord(record.reasoning).supported_efforts)) return true;
+  if (Array.isArray(asRecord(record.capabilities).effort_tiers)) return true;
+  if (Array.isArray(record.supported_reasoning_levels)) return true;
+  return Array.isArray(asRecord(record.thinking).levels);
+}
+
 export function isAutoFetchModelsEnabled(providerSpecificData: unknown): boolean {
   return asRecord(providerSpecificData).autoFetchModels !== false;
 }
 
-export function normalizeDiscoveredModels(models: unknown): SyncedAvailableModel[] {
+export function normalizeDiscoveredModels(
+  models: unknown,
+  providerId?: string
+): SyncedAvailableModel[] {
   const items = Array.isArray(models) ? models : [];
   const deduped = new Map<string, SyncedAvailableModel>();
 
@@ -188,6 +228,20 @@ export function normalizeDiscoveredModels(models: unknown): SyncedAvailableModel
       toNonEmptyString(record.name) ||
       toNonEmptyString(record.model);
     if (!id) continue;
+
+    const isCrofReasoningModel = providerId === "crof" && record.reasoning_effort === true;
+    const supportedThinkingEfforts = (() => {
+      // The flat import field and every recognized upstream tier array remain
+      // authoritative over the provider fallback, including an explicit empty list.
+      if (Array.isArray(record.supportedThinkingEfforts)) {
+        return record.supportedThinkingEfforts.filter(
+          (effort): effort is string => typeof effort === "string" && effort.length > 0
+        );
+      }
+      const detected = detectSupportedThinkingEfforts(record);
+      if (detected || hasDeclaredEffortList(record)) return detected;
+      return isCrofReasoningModel ? [...CROF_REASONING_EFFORTS] : undefined;
+    })();
 
     const name =
       toNonEmptyString(record.name) ||
@@ -243,22 +297,7 @@ export function normalizeDiscoveredModels(models: unknown): SyncedAvailableModel
         ? { upstreamProtocol: toNonEmptyString(record.upstreamProtocol)! }
         : {}),
       ...(supportedEndpoints && supportedEndpoints.length > 0 ? { supportedEndpoints } : {}),
-      ...(() => {
-        // #7694/#8347: the flat field (OmniRoute's own import format) wins verbatim when
-        // present, unchanged from its current pass-through behavior. Otherwise
-        // `detectSupportedThinkingEfforts` falls back in order: `reasoning.supported_efforts`
-        // → `supported_reasoning_levels` → `thinking.levels` (all normalized onto the
-        // canonical vocabulary) — never disturbing the flat field's precedence.
-        if (Array.isArray(record.supportedThinkingEfforts)) {
-          return {
-            supportedThinkingEfforts: record.supportedThinkingEfforts.filter(
-              (effort): effort is string => typeof effort === "string" && effort.length > 0
-            ),
-          };
-        }
-        const nested = detectSupportedThinkingEfforts(record);
-        return nested ? { supportedThinkingEfforts: nested } : {};
-      })(),
+      ...(supportedThinkingEfforts !== undefined ? { supportedThinkingEfforts } : {}),
       ...(toNonEmptyString(record.defaultThinkingEffort)
         ? { defaultThinkingEffort: toNonEmptyString(record.defaultThinkingEffort)! }
         : {}),
@@ -267,7 +306,9 @@ export function normalizeDiscoveredModels(models: unknown): SyncedAvailableModel
       ...(typeof record.description === "string" ? { description: record.description } : {}),
       ...(typeof record.supportsThinking === "boolean"
         ? { supportsThinking: record.supportsThinking }
-        : {}),
+        : isCrofReasoningModel
+          ? { supportsThinking: true }
+          : {}),
       ...(record.alwaysThinking === true ? { alwaysThinking: true } : {}),
       ...(typeof record.supportsTools === "boolean" ? { supportsTools: record.supportsTools } : {}),
       ...(typeof record.supportsVideo === "boolean" ? { supportsVideo: record.supportsVideo } : {}),
@@ -293,7 +334,10 @@ export async function persistDiscoveredModels(
   connectionId: string,
   models: unknown
 ): Promise<SyncedAvailableModel[]> {
-  const normalized = normalizeDiscoveredModels(models);
+  const normalized = filterChatSelectableModels(
+    providerId,
+    filterSelectableModels(providerId, normalizeDiscoveredModels(models, providerId))
+  );
   await replaceSyncedAvailableModelsForConnection(providerId, connectionId, normalized);
   return normalized;
 }

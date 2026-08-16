@@ -1,7 +1,7 @@
 import { getDbInstance } from "./core";
 import { invalidateDbCache } from "./readCache";
 
-export type ModelCapabilityOverrideKey = "max_input_tokens" | "max_output_tokens";
+export type ModelCapabilityOverrideKey = "max_input_tokens" | "max_output_tokens" | "max_token";
 
 export interface ModelCapabilityOverride {
   provider: string;
@@ -21,7 +21,7 @@ interface OverrideRow {
 }
 
 function isSupportedKey(value: unknown): value is ModelCapabilityOverrideKey {
-  return value === "max_input_tokens" || value === "max_output_tokens";
+  return value === "max_input_tokens" || value === "max_output_tokens" || value === "max_token";
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -63,13 +63,23 @@ function toOverride(row: OverrideRow): ModelCapabilityOverride | null {
   };
 }
 
+/** Nested provider → model → max_token map used by build-local snapshots. */
+export type NestedMaxTokenOverrideMap = ReadonlyMap<string, ReadonlyMap<string, number>>;
+
 export function getModelCapabilityOverride(
   provider: string | null | undefined,
   modelId: string | null | undefined,
-  key: ModelCapabilityOverrideKey
+  key: ModelCapabilityOverrideKey,
+  bulkMaxTokenOverrides?: NestedMaxTokenOverrideMap | null
 ): number | null {
   const target = parseModelOverrideTarget(`${provider || ""}/${modelId || ""}`);
   if (!target || !isSupportedKey(key)) return null;
+
+  if (bulkMaxTokenOverrides) {
+    // The caller pairs the bulk map with the key it was built for
+    // (max_output_tokens or max_input_tokens in the #9199 snapshot).
+    return bulkMaxTokenOverrides.get(target.provider)?.get(target.modelId) ?? null;
+  }
 
   try {
     const row = getDbInstance()

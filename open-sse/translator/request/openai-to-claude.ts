@@ -240,7 +240,12 @@ export function openaiToClaudeRequest(model, body, stream, credentials = null) {
   // could exceed model caps (e.g. Opus 4.7's 128000 ceiling) and trigger
   // HTTP 400 from Anthropic.
   if (!isKimiCoding) {
-    const fitted = fitThinkingToMaxTokens(model, Number(result.max_tokens) || 0, result.thinking);
+    const fitted = fitThinkingToMaxTokens(
+      model,
+      Number(result.max_tokens) || 0,
+      result.thinking,
+      routedProvider
+    );
     result.max_tokens = fitted.maxTokens;
     if (fitted.thinking === undefined) {
       delete result.thinking;

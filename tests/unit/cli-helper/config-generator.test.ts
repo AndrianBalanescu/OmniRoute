@@ -2,6 +2,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert";
 import fs, { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { parse } from "jsonc-parser";
 import * as generator from "../../../src/lib/cli-helper/config-generator/index.ts";
 
 // The UI's HERMES_ROLES catalog (HermesAgentToolCard.tsx) is a "use client" component
@@ -261,7 +262,7 @@ describe("config-generator", () => {
           { role: "delegation", model: "claude-3-5-sonnet" },
           { role: "vision", model: "gpt-4o" },
         ],
-      });
+      } as any);
 
       assert.ok(!result.error);
       assert.ok(typeof result.yaml === "string");
@@ -291,7 +292,7 @@ describe("config-generator", () => {
       const result = await hermesAgent.generateHermesAgentConfig({
         baseUrl: "",
         selections: [{ role: "default", model: "x" }],
-      } as any);
+      });
 
       assert.ok(result.error);
       assert.ok(result.error.includes("baseUrl"));
@@ -513,9 +514,8 @@ describe("config-generator", () => {
         ])
       );
       try {
-        const { generateOpencodeConfig } = await import(
-          "../../../src/lib/cli-helper/config-generator/opencode.ts"
-        );
+        const { generateOpencodeConfig } =
+          await import("../../../src/lib/cli-helper/config-generator/opencode.ts");
         const out = await generateOpencodeConfig({
           baseUrl: "http://localhost:20128",
           apiKey: "sk-test",
@@ -648,6 +648,71 @@ describe("config-generator", () => {
           context: 131072,
           output: 4096,
         });
+      } finally {
+        stub.restore();
+        mock.restoreAll();
+      }
+    });
+
+    it("loads comments and trailing commas from opencode.jsonc and returns its real path (#10227)", async () => {
+      const existingJsonc = `{
+  // preserve this native OpenCode file instead of ignoring it
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "custom": {
+      // keep comments inside unrelated providers too
+      "name": "Custom Provider"
+    },
+    "omniroute": {
+      "models": {
+        "manual-model": { "name": "Manual", "limit": { "context": 77777, }, },
+      },
+    },
+  },
+}\n`;
+      let readPath = "";
+      mock.method(fs, "existsSync", (candidate) => String(candidate).endsWith("opencode.jsonc"));
+      mock.method(fs, "readFileSync", (candidate) => {
+        readPath = String(candidate);
+        return existingJsonc;
+      });
+      const stub = stubFetchOnce(
+        makeCatalogResponse([{ id: "manual-model", context_length: 131072 }])
+      );
+
+      try {
+        const result = await generator.generateConfig("opencode", {
+          baseUrl: "http://localhost:20128",
+          apiKey: "sk-test",
+        });
+
+        assert.strictEqual(result.success, true);
+        assert.match(result.configPath, /opencode\.jsonc$/);
+        assert.strictEqual(readPath, result.configPath);
+        assert.match(result.content || "", /preserve this native OpenCode file/);
+        assert.match(result.content || "", /keep comments inside unrelated providers too/);
+        const config = parse(result.content || "");
+        assert.deepStrictEqual(config.provider.custom, { name: "Custom Provider" });
+        assert.strictEqual(config.provider.omniroute.models["manual-model"].limit.context, 77777);
+      } finally {
+        stub.restore();
+        mock.restoreAll();
+      }
+    });
+
+    it("refuses to replace an invalid existing opencode.jsonc (#10227)", async () => {
+      mock.method(fs, "existsSync", (candidate) => String(candidate).endsWith("opencode.jsonc"));
+      mock.method(fs, "readFileSync", () => "{ invalid jsonc");
+      const stub = stubFetchOnce(makeCatalogResponse([{ id: "catalog-model", context_length: 8 }]));
+
+      try {
+        const result = await generator.generateConfig("opencode", {
+          baseUrl: "http://localhost:20128",
+          apiKey: "sk-test",
+        });
+
+        assert.strictEqual(result.success, false);
+        assert.match(result.error || "", /invalid.*JSONC|refus/i);
       } finally {
         stub.restore();
         mock.restoreAll();

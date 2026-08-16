@@ -41,6 +41,7 @@ export const APP_STAGING_ALLOWED_EXACT_PATHS: string[] = [
   "head-response-guard.cjs",
   "http-method-guard.cjs",
   "open-sse/mcp-server/server.js",
+  "open-sse/vendor/codex-chatgpt-web/adapters/chatgpt-web/mcp-server.js",
   // LLMLingua ONNX worker — esbuild'd standalone .js spawned via worker_threads
   // (the Next.js bundler can't trace the computed Worker path). Kept like the MCP server.
   "open-sse/services/compression/engines/llmlingua/onnxWorker.js",
@@ -48,6 +49,7 @@ export const APP_STAGING_ALLOWED_EXACT_PATHS: string[] = [
   "peer-stamp.mjs",
   "main-server-timeouts.mjs",
   "responses-ws-proxy.mjs",
+  "bin/chatgpt-web-codex-mcp.mjs",
   "scripts/dev/sync-env.mjs",
   "scripts/dev/tls-options.mjs",
   "server.js",
@@ -86,7 +88,9 @@ export const PACK_ARTIFACT_ROOT_ALLOWED_EXACT_PATHS: string[] = [
   ".env.example",
   "LICENSE",
   "README.md",
+  "THIRD_PARTY_NOTICES.md",
   "bin/aliasResolver.mjs",
+  "bin/chatgpt-web-codex-mcp.mjs",
   // #7808: ESM loader hook split out of bin/aliasResolver.mjs to silence CodeQL
   // js/incomplete-url-substring-sanitization (the old code built a
   // `data:text/javascript,...` URL dynamically). Loaded via pathToFileURL() at
@@ -138,6 +142,10 @@ export const PACK_ARTIFACT_ROOT_ALLOWED_EXACT_PATHS: string[] = [
   "scripts/build/fixPlaywrightAndroid.mjs",
   // #5227: imported at runtime by bin/cli/commands/serve.mjs (heap auto-calibration).
   "scripts/build/runtime-env.mjs",
+  // #10382: imported at runtime by bin/cli/commands/packs.mjs (optional ML/browser
+  // runtime pack management) — shipped via package.json "files", so must be allowed.
+  "scripts/packs/optionalPackInstaller.mjs",
+  "scripts/packs/optionalPackManifest.mjs",
   "scripts/build/sync-env.mjs",
   "scripts/dev/responses-ws-proxy.mjs",
   "scripts/dev/sync-env.mjs",
@@ -167,6 +175,7 @@ export const PACK_ARTIFACT_ROOT_ALLOWED_PATH_PREFIXES: string[] = [
 
 export const PACK_ARTIFACT_REQUIRED_PATHS: string[] = [
   "dist/open-sse/services/compression/engines/rtk/filters/generic-output.json",
+  "dist/open-sse/vendor/codex-chatgpt-web/adapters/chatgpt-web/mcp-server.js",
   "dist/open-sse/services/compression/rules/en/filler.json",
   "dist/server.js",
   "dist/server-ws.mjs",
@@ -187,6 +196,7 @@ export const PACK_ARTIFACT_REQUIRED_PATHS: string[] = [
   // tests/unit/pack-artifact-entrypoint-closures.test.ts).
   "bin/cli/data-dir.mjs",
   "bin/cli/utils/ensureAndroidCacheDir.mjs",
+  "bin/cli/utils/parseEnvValue.mjs",
   "bin/cli/utils/storageKeyProvision.mjs",
   "bin/cli/utils/versionFastPath.mjs",
   "bin/mcp-server.mjs",
@@ -209,6 +219,10 @@ export const PACK_ARTIFACT_REQUIRED_PATHS: string[] = [
   "scripts/build/colocateOptionals.mjs",
   "scripts/build/fixTlsClientNodeBinary.mjs",
   "scripts/build/runtime-env.mjs",
+  // #10382: runtime imports of bin/cli/commands/packs.mjs (optional packs CLI) —
+  // listed REQUIRED so their absence from the tarball fails loudly.
+  "scripts/packs/optionalPackInstaller.mjs",
+  "scripts/packs/optionalPackManifest.mjs",
   "src/shared/utils/nodeRuntimeSupport.ts",
 ];
 
@@ -221,6 +235,59 @@ export function normalizeArtifactPath(filePath: string): string {
     .replace(/^\.\//, "")
     .replace(/^\/+/, "")
     .replace(/\/{2,}/g, "/");
+}
+
+/** Extract complete JSON values from npm's mixed stdout/stderr-style output. */
+export function parseJsonValuesOutput(output: string): unknown[] {
+  const values: unknown[] = [];
+  for (let start = 0; start < output.length; start++) {
+    if (output[start] !== "[" && output[start] !== "{") continue;
+
+    const stack: string[] = [];
+    let inString = false;
+    let escaped = false;
+    for (let end = start; end < output.length; end++) {
+      const char = output[end];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+      } else if (char === "[" || char === "{") {
+        stack.push(char);
+      } else if (char === "]" || char === "}") {
+        const expectedOpen = char === "]" ? "[" : "{";
+        if (stack.at(-1) !== expectedOpen) break;
+        stack.pop();
+        if (stack.length === 0) {
+          try {
+            const parsed: unknown = JSON.parse(output.slice(start, end + 1));
+            values.push(parsed);
+            start = end;
+          } catch {
+            // This bracket pair was not a complete JSON value; continue scanning.
+          }
+          break;
+        }
+      }
+    }
+  }
+  return values;
+}
+
+/** Extract the first matching JSON array from npm's mixed stdout/stderr-style output. */
+export function parseJsonArrayOutput(
+  output: string,
+  matches: (parsed: unknown[]) => boolean = () => true
+): unknown[] {
+  const parsed = parseJsonValuesOutput(output).find(
+    (value): value is unknown[] => Array.isArray(value) && matches(value)
+  );
+  if (!parsed) throw new Error("Expected a valid JSON array in command output.");
+  return parsed;
 }
 
 /**

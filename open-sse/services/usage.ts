@@ -69,6 +69,8 @@ import { getXaiOauthUsage } from "./usage/xaiOauth.ts";
 import { getGrokCliUsage } from "./usage/grokCli.ts";
 import { getFirecrawlUsage } from "./usage/firecrawl.ts";
 import { getCommandCodeUsage } from "./usage/command-code.ts";
+import { getQwenTokenPlanUsage } from "./usage/qwen-token-plan.ts";
+import { getConolUsage } from "./conolUsage.ts";
 
 type JsonRecord = Record<string, unknown>;
 type UsageProviderConnection = JsonRecord & {
@@ -110,6 +112,7 @@ export const USAGE_FETCHER_PROVIDERS = [
   "minimax-cn",
   "crof",
   "bailian-coding-plan",
+  "qwen-cloud-token-plan",
   "nanogpt",
   "deepseek",
   "opencode",
@@ -133,6 +136,8 @@ export const USAGE_FETCHER_PROVIDERS = [
   "firecrawl",
   // Command Code credits + 5h/weekly windows (GET /alpha/billing/credits)
   "command-code",
+  "conol-web",
+  "cnl",
 ] as const;
 
 export type UsageFetcherProvider = (typeof USAGE_FETCHER_PROVIDERS)[number];
@@ -199,6 +204,8 @@ export async function getUsageForProvider(
       return await getCrofUsage(apiKey || "");
     case "bailian-coding-plan":
       return await getBailianCodingPlanUsage(id || "", apiKey || "", providerSpecificData);
+    case "qwen-cloud-token-plan":
+      return await getQwenTokenPlanUsage(id || "", apiKey || "", providerSpecificData);
     case "nanogpt":
       return await getNanoGptUsage(apiKey || "");
     case "deepseek":
@@ -234,6 +241,9 @@ export async function getUsageForProvider(
       return await getFirecrawlUsage(id || "", apiKey, connection);
     case "command-code":
       return await getCommandCodeUsage(apiKey || accessToken || "");
+    case "conol-web":
+    case "cnl":
+      return await getConolUsage(apiKey || accessToken, providerSpecificData);
     default:
       return { message: `Usage API not implemented for ${provider}` };
   }

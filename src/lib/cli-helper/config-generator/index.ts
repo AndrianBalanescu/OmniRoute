@@ -10,6 +10,7 @@ import { generateHermesConfig } from "./hermes";
 import { generateHermesAgentConfig, type HermesAgentConfigPayload } from "./hermes-agent";
 import { generateKilocodeConfig } from "./kilocode";
 import { generateOpencodeConfig } from "./opencode";
+import { resolveOpencodeConfigPath } from "../../../shared/services/opencodeConfigPath";
 
 export interface GenerateOptions {
   baseUrl: string;
@@ -42,7 +43,6 @@ function expandHome(p: string): string {
 const STATIC_TOOL_CONFIG_PATHS: Record<string, string> = {
   claude: path.join(os.homedir(), ".claude", "settings.json"),
   codex: path.join(os.homedir(), ".codex", "config.yaml"),
-  opencode: path.join(os.homedir(), ".config", "opencode", "opencode.json"),
   cline: path.join(os.homedir(), ".cline", "data", "globalState.json"),
   kilocode: path.join(os.homedir(), ".config", "kilocode", "settings.json"),
   continue: path.join(os.homedir(), ".continue", "config.yaml"),
@@ -57,6 +57,9 @@ const STATIC_TOOL_CONFIG_PATHS: Record<string, string> = {
 function getToolConfigPath(toolId: string): string {
   if (toolId === "hermes" || toolId === "hermes-agent") {
     return getHermesConfigPath();
+  }
+  if (toolId === "opencode") {
+    return resolveOpencodeConfigPath();
   }
   return STATIC_TOOL_CONFIG_PATHS[toolId] ?? "";
 }
@@ -95,8 +98,11 @@ export async function generateConfig(
     if (!generate) {
       return { success: false, configPath: "", error: `Unknown tool: ${toolId}` };
     }
-    const content = await generate(options);
     const configPath = getToolConfigPath(toolId);
+    const content =
+      toolId === "opencode"
+        ? await generateOpencodeConfig({ ...options, configPath })
+        : await generate(options);
     return { success: true, configPath, content };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

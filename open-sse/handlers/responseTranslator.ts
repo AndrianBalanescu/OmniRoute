@@ -134,6 +134,18 @@ function findBestMessageText(output: unknown[]): {
  * @param toolNameMap - Optional Map<prefixedName, originalName> for Claude OAuth tool name stripping
  */
 export function translateNonStreamingResponse(
+  responseBody: JsonRecord,
+  targetFormat: string,
+  sourceFormat: string,
+  toolNameMap?: Map<string, string> | null
+): JsonRecord;
+export function translateNonStreamingResponse(
+  responseBody: unknown,
+  targetFormat: string,
+  sourceFormat: string,
+  toolNameMap?: Map<string, string> | null
+): unknown;
+export function translateNonStreamingResponse(
   responseBody: unknown,
   targetFormat: string,
   sourceFormat: string,

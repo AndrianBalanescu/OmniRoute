@@ -496,7 +496,7 @@ export function collectHiddenQuotaModelIds(provider: string, payload: unknown): 
     if (!Array.isArray(entries)) return;
     for (const entry of entries) {
       const record = toRecord(entry);
-      if (record.isHidden !== true && record.isDeleted !== true) continue;
+      if (record.isHidden !== true) continue;
       if (typeof record.id === "string") addQuotaModelIdVariants(hidden, provider, record.id);
     }
   };
@@ -537,11 +537,10 @@ export function filterHiddenModelQuotas(
 
 // --- Per-user quota row visibility (upstream 9router#2371 port) ---------
 // Distinct from collectHiddenQuotaModelIds()/filterHiddenModelQuotas() above:
-// those hide rows for models the ADMIN marked isHidden/isDeleted in the model
-// catalog. These hide rows the OPERATOR clicked "hide" on for their own view
-// (persisted per-provider in settings.quotaVisibility), independent of model
-// catalog state — e.g. temporarily decluttering a quota card without editing
-// the catalog. Both mechanisms can apply to the same row.
+// those hide rows for models the ADMIN hid in the model catalog. These hide rows
+// the OPERATOR clicked "hide" on for their own view (persisted per-provider in
+// settings.quotaVisibility), independent of model catalog state — e.g.
+// temporarily decluttering a quota card without editing the catalog.
 
 /** Stable identity for a quota row: prefer modelKey (survives displayName i18n), fall back to name. */
 export function getQuotaVisibilityKey(quota: any): string {

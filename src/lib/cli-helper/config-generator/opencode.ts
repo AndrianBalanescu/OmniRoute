@@ -1,13 +1,13 @@
-import path from "node:path";
-import os from "node:os";
 import fs from "node:fs";
+import { applyEdits, modify, parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import {
   parseOutboundUrl,
   isCloudMetadataHost,
   OutboundUrlGuardError,
 } from "../../../shared/network/outboundUrlGuard";
+import { resolveOpencodeConfigPath } from "../../../shared/services/opencodeConfigPath";
 
-const CONFIG_PATH = path.join(os.homedir(), ".config", "opencode", "opencode.json");
+const JSON_FORMATTING_OPTIONS = { insertSpaces: true, tabSize: 2 } as const;
 
 /**
  * SSRF guard for the catalog fetch (CodeQL js/request-forgery #326). The catalog
@@ -185,7 +185,8 @@ function deriveOpenCodeCapabilities(
   catalog: CatalogModelEntry | undefined,
   existing: ExistingModelEntry | undefined
 ): Pick<ExistingModelEntry, "attachment" | "reasoning" | "temperature" | "tool_call"> {
-  const result: Pick<ExistingModelEntry, "attachment" | "reasoning" | "temperature" | "tool_call"> = {};
+  const result: Pick<ExistingModelEntry, "attachment" | "reasoning" | "temperature" | "tool_call"> =
+    {};
 
   // attachment: explicit user flag wins, then catalog attachment, then vision, then image modality.
   if (typeof existing?.attachment === "boolean") {
@@ -324,26 +325,81 @@ function buildModelEntry(
 }
 
 /**
- * Load the user's current opencode.json (if any) so we can preserve names,
- * capability flags, and explicit `limit.context` overrides. JSONC comments
- * are not supported — we parse as plain JSON. If parsing fails, we fall
- * back to an empty config; the resulting write will lose comments, but
- * that matches the existing CLI behavior of `config set opencode`.
+ * Load the user's current OpenCode config so we can preserve names,
+ * capability flags, explicit `limit.context` overrides, and JSONC source text.
+ * Existing invalid files are a hard stop: replacing one with a regenerated
+ * document would silently lose comments, unrelated providers, and settings.
  */
-function loadExistingConfig(): ExistingConfig {
+function loadExistingConfig(configPath: string): { config: ExistingConfig; source: string | null } {
+  if (!fs.existsSync(configPath)) return { config: {}, source: null };
+
+  let source: string;
   try {
-    if (!fs.existsSync(CONFIG_PATH)) return {};
-    const raw = fs.readFileSync(CONFIG_PATH, "utf8");
-    return JSON.parse(raw) as ExistingConfig;
-  } catch {
-    return {};
+    source = fs.readFileSync(configPath, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to read existing OpenCode config at ${configPath}: ${message}`);
   }
+
+  const errors: ParseError[] = [];
+  const parsed = parse(source, errors, { allowTrailingComma: true, disallowComments: false });
+  if (errors.length > 0 || !parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const detail = errors[0] ? printParseErrorCode(errors[0].error) : "root must be an object";
+    throw new Error(
+      `Existing OpenCode config at ${configPath} is invalid JSONC (${detail}); refusing to overwrite it.`
+    );
+  }
+
+  return { config: parsed as ExistingConfig, source };
+}
+
+/**
+ * Patch the generated values into an existing JSONC document without replacing
+ * its comments or unrelated keys. The generated object is authoritative for
+ * the fields the generator manages; everything else remains byte-for-byte
+ * unless jsonc-parser must adjust nearby whitespace for an edit.
+ */
+function mergeGeneratedConfigText(
+  existingSource: string | null,
+  existingConfig: ExistingConfig,
+  generatedConfig: Record<string, unknown>,
+  providerId: string
+): string {
+  if (existingSource === null) return JSON.stringify(generatedConfig, null, 2);
+
+  let nextText = existingSource;
+  const schemaEdits = modify(nextText, ["$schema"], generatedConfig.$schema, {
+    formattingOptions: JSON_FORMATTING_OPTIONS,
+  });
+  nextText = applyEdits(nextText, schemaEdits);
+
+  const generatedProvider = (
+    generatedConfig.provider as Record<string, ExistingProviderEntry> | undefined
+  )?.[providerId];
+  const providerEdits = modify(nextText, ["provider", providerId], generatedProvider, {
+    formattingOptions: JSON_FORMATTING_OPTIONS,
+  });
+  nextText = applyEdits(nextText, providerEdits);
+
+  if (generatedConfig.model !== existingConfig.model) {
+    const modelEdits = modify(nextText, ["model"], generatedConfig.model, {
+      formattingOptions: JSON_FORMATTING_OPTIONS,
+    });
+    nextText = applyEdits(nextText, modelEdits);
+  }
+
+  return nextText;
 }
 
 export interface GenerateOpencodeOptions {
   baseUrl: string;
   apiKey: string;
   model?: string;
+  /**
+   * Pre-resolved destination used by the API generator/apply pipeline so the
+   * file read for merging is guaranteed to be the file later written.
+   */
+  configPath?: string;
   /**
    * Override the default `provider.id` used in the generated config.
    * Defaults to `"omniroute"`.
@@ -389,6 +445,8 @@ export async function generateOpencodeConfig(options: GenerateOpencodeOptions): 
   const providerId = options.providerId?.trim() || "omniroute";
   const fetchCatalog = options.fetchCatalog !== false;
   const timeoutMs = options.catalogTimeoutMs ?? 5_000;
+  const configPath = options.configPath ?? resolveOpencodeConfigPath();
+  const { config: existing, source: existingSource } = loadExistingConfig(configPath);
 
   // Fetch live catalog. The catalog is the source of truth — if it fails,
   // we refuse to write an opencode.json that could mislead OpenCode into
@@ -407,7 +465,6 @@ export async function generateOpencodeConfig(options: GenerateOpencodeOptions): 
 
   // Load existing config so we preserve names, capability flags, and any
   // explicit `limit.context` overrides the user has set.
-  const existing = loadExistingConfig();
   const existingProvider = existing.provider?.[providerId];
   const existingModels = (existingProvider?.models ?? {}) as Record<string, ExistingModelEntry>;
 
@@ -465,7 +522,7 @@ export async function generateOpencodeConfig(options: GenerateOpencodeOptions): 
     config.small_model = existing.small_model;
   }
 
-  return JSON.stringify(config, null, 2);
+  return mergeGeneratedConfigText(existingSource, existing, config, providerId);
 }
 
 /**

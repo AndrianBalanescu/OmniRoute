@@ -65,6 +65,11 @@ export const CATALOG_STALE_WHILE_REVALIDATE_MS = 30_000;
  */
 export const CATALOG_CACHE_TTL_MS_DEFAULT = 60_000;
 
+type CatalogInFlight = {
+  version: number;
+  promise: Promise<CachedCatalog>;
+};
+
 const catalogCache = new Map<string, CachedCatalog>();
 
 /**
@@ -195,7 +200,6 @@ function scheduleBackgroundRefresh(
         });
     }, 0);
   });
-
   // Nobody on the stale path awaits this, so pre-handle the rejection; a cold-path
   // caller that joins it via catalogInFlight attaches its own handler and still
   // observes the failure.

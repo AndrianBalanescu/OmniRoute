@@ -113,6 +113,8 @@ export interface ResolveComboTargetPipelineDeps {
    */
   buildAutoCandidates: ResolveAutoStrategyDeps["buildAutoCandidates"];
   hiddenModelsByProvider?: HiddenModelsByProvider;
+  /** Native Responses clients (for example Codex CLI/Desktop) manage compaction themselves. */
+  clientManagedResponsesContext?: boolean;
 }
 
 export interface ResolvedComboTargetPipeline {
@@ -160,6 +162,12 @@ async function isTargetSelectableForWeighted(
     isModelLocked(target.provider, target.connectionId || "", rawModel)
   ) {
     return false;
+  }
+  if (target.provider && rawModel && target.connectionId) {
+    const { isAlibabaFreeTierModelRoutable } = await import("../alibabaFreeTier.ts");
+    if (!(await isAlibabaFreeTierModelRoutable(target.provider, target.connectionId, rawModel))) {
+      return false;
+    }
   }
   return isModelAvailable ? await isModelAvailable(target.modelStr, target) : true;
 }
@@ -446,6 +454,7 @@ async function orderByStrategy(
     body,
     log,
     apiKeyAllowedConnections: deps.apiKeyAllowedConnections,
+    sessionKey: deps.relayOptions?.sessionId,
   });
   return { orderedTargets, autoUsedExplicitRouter: false };
 }
@@ -489,7 +498,8 @@ async function applyContinuityFilters(
         initialOrderedTargets,
         // #7270: normalize both wire shapes (.messages / Responses-API .input) so the
         // stickiness key is derivable on the /v1/responses surface, not just Chat Completions.
-        normalizeStickinessMessages(body as { messages?: unknown; input?: unknown })
+        normalizeStickinessMessages(body as { messages?: unknown; input?: unknown }),
+        combo.name
       );
   let orderedTargets = sticky.targets;
   if (!cacheStrategyAffinityApplied) {
@@ -675,7 +685,8 @@ async function applyPromptCacheStage(
     promptCacheAffinityTargets,
     body,
     promptCacheAffinityEnabled,
-    isDeterministicStrategy ? "model" : "global"
+    isDeterministicStrategy ? "model" : "global",
+    deps.relayOptions?.sessionId
   );
   if (!promptCacheAffinity.applied) return orderedTargets;
   const protectedOriginal =
@@ -717,7 +728,9 @@ export async function resolveComboTargetPipeline(
 
   orderedTargets = await applyRequestTagRouting(orderedTargets, body, log);
 
-  const overflow = getKnownContextOverflow(orderedTargets, body);
+  const overflow = getKnownContextOverflow(orderedTargets, body, {
+    clientManagedResponsesContext: deps.clientManagedResponsesContext,
+  });
   if (overflow) {
     return { earlyResponse: buildContextOverflowResponse(overflow, orderedTargets, log) };
   }

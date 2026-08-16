@@ -30,6 +30,7 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "cli-agents",
   "acp-agents",
   "cloud-agents",
+  "conductor",
   "agent-bridge",
   "traffic-inspector",
   "discovery",
@@ -67,6 +68,7 @@ export const HIDEABLE_SIDEBAR_ITEM_IDS = [
   "costs-quota-share",
   "free-provider-rankings",
   "radar",
+  "radar-admin",
   // Monitoring > Audit
   "audit",
   "audit-mcp",

@@ -15,6 +15,7 @@ function isHttpUrl(value: string): boolean {
 
 const CODEX_REASONING_EFFORT_VALUES = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 const REQUEST_DEFAULT_SERVICE_TIER_VALUES = new Set(["default", "priority", "fast", "flex"]);
+const CODEX_FINGERPRINT_MODE_VALUES = new Set(["off", "device", "session", "full"]);
 const CACHE_PASSTHROUGH_VALUES = new Set(["strip", "openai-format", "claude-format"]);
 
 // #6880 — per-connection prompt-cache capability override, extracted so
@@ -152,6 +153,20 @@ export function validateProviderSpecificData(
       message: "providerSpecificData.openaiStoreEnabled must be a boolean",
       path: ["openaiStoreEnabled"],
     });
+  }
+
+  const codexFingerprintMode = data.codexFingerprintMode;
+  if (codexFingerprintMode !== undefined && codexFingerprintMode !== null) {
+    const normalized =
+      typeof codexFingerprintMode === "string" ? codexFingerprintMode.trim().toLowerCase() : "";
+    if (normalized && !CODEX_FINGERPRINT_MODE_VALUES.has(normalized)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "providerSpecificData.codexFingerprintMode must be one of off, device, session, full",
+        path: ["codexFingerprintMode"],
+      });
+    }
   }
 
   const preserveEncryptedReasoning = data.preserveEncryptedReasoning;
@@ -311,6 +326,10 @@ export function validateProviderSpecificData(
     "ollamaCloudUsageCookie",
     "ollamaCloudCookie",
     "usageCookie",
+    "alibabaConsoleCookie",
+    "alibabaConsoleSecToken",
+    "qwenCloudCookie",
+    "qwenCloudSecToken",
   ] as const) {
     const value = data[key];
     if (value !== undefined && value !== null && typeof value !== "string") {

@@ -232,6 +232,46 @@ test("extractUsageFromResponse reads Gemini usageMetadata and thinking tokens", 
   });
 });
 
+test("extractUsageFromResponse reads Gemini usageMetadata from the antigravity response envelope", () => {
+  // Antigravity / gemini-cli wrap non-streaming payloads in { response: {...} }
+  // (port of decolua/9router#59d858b — previously logged zero usage).
+  const usage = extractUsageFromResponse(
+    {
+      response: {
+        usageMetadata: {
+          promptTokenCount: 42,
+          candidatesTokenCount: 13,
+          thoughtsTokenCount: 4,
+          cachedContentTokenCount: 7,
+        },
+      },
+    },
+    "antigravity"
+  );
+
+  assert.deepEqual(usage, {
+    prompt_tokens: 42,
+    completion_tokens: 17,
+    reasoning_tokens: 4,
+  });
+});
+
+test("extractUsageFromResponse prefers top-level usageMetadata over the envelope", () => {
+  const usage = extractUsageFromResponse(
+    {
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2 },
+      response: { usageMetadata: { promptTokenCount: 99, candidatesTokenCount: 99 } },
+    },
+    "gemini"
+  );
+
+  assert.deepEqual(usage, {
+    prompt_tokens: 1,
+    completion_tokens: 2,
+    reasoning_tokens: 0,
+  });
+});
+
 test("extractUsageFromResponse returns null when usage is missing", () => {
   const usage = extractUsageFromResponse(
     {

@@ -34,7 +34,6 @@ import { isValidProviderIconUrl } from "@/shared/validation/iconUrl";
 const providerNodeIconUrlSchema = z
   .string()
   .trim()
-  .max(2000)
   .refine((value) => isValidProviderIconUrl(value), {
     message: "Icon URL must be a valid http(s) or data:image/*;base64 URL",
   })
@@ -335,8 +334,8 @@ export const createProviderNodeSchema = z
     modelsPath: z.string().trim().startsWith("/").max(500).optional().or(z.literal("")),
     // #2166: optional operator-supplied remote icon URL for the provider node. Empty
     // string is accepted so callers can explicitly submit "no custom icon" (falls back
-    // to the built-in @lobehub/static resolution). Restricted to http(s) — `.url()` alone
-    // also accepts syntactically-valid-but-unsafe schemes like `javascript:`/`data:`.
+    // to the built-in @lobehub/static resolution). Length/scheme limits live in
+    // isValidProviderIconUrl (2000 chars for http(s), 256 KiB for data:image).
     iconUrl: providerNodeIconUrlSchema,
     customHeaders: customHeadersSchema,
   })
@@ -611,6 +610,9 @@ export const validateProviderApiKeySchema = z
     baseUrl: z.string().trim().url().optional(),
     region: z.string().trim().max(64).optional(),
     cx: z.string().trim().max(500).optional(),
+    runtimeKey: z.string().trim().max(65_536).optional(),
+    tunnelId: z.string().trim().max(128).optional(),
+    connectorName: z.string().trim().max(200).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.provider === "google-pse-search" && !data.cx) {

@@ -62,6 +62,10 @@ const eslintConfig = [
       "no-implied-eval": "error",
       "no-new-func": "error",
       "no-restricted-imports": ["error", IMPORT_BOUNDARY_RESTRICTIONS],
+      // New rule shipped by the eslint-config-next bump (#10043); flags 6 pre-existing
+      // window.location.href navigations, several of which are deliberate full-page
+      // reloads (login/logout state reset). Off pending per-case review — issue #10292.
+      "@next/next/no-location-assign-relative-destination": "off",
     },
   },
   // G14: DB internals may use the compatibility barrel while it is decomposed; all

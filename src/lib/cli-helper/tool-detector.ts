@@ -8,6 +8,7 @@ import {
   locateCommand,
   shouldUseShellForCommand,
 } from "../../shared/services/cliRuntime";
+import { resolveOpencodeConfigPath } from "../../shared/services/opencodeConfigPath";
 
 const execFileAsync = promisify(execFile);
 let execFileImpl = execFileAsync;
@@ -44,7 +45,7 @@ export interface DetectedTool {
 const TOOLS = [
   { id: "claude", name: "Claude Code", configPath: "~/.claude/settings.json" },
   { id: "codex", name: "Codex CLI", configPath: "~/.codex/config.yaml" },
-  { id: "opencode", name: "OpenCode", configPath: "~/.config/opencode/opencode.json" },
+  { id: "opencode", name: "OpenCode", configPath: resolveOpencodeConfigPath },
   { id: "cline", name: "Cline", configPath: "~/.cline/data/globalState.json" },
   { id: "kilocode", name: "Kilo Code", configPath: "~/.config/kilocode/settings.json" },
   { id: "continue", name: "Continue", configPath: "~/.continue/config.yaml" },
@@ -149,8 +150,9 @@ export async function detectTool(id: string): Promise<DetectedTool | null> {
   if (!tool) return null;
 
   const { installed, version } = await detectBinary(tool.id);
-  const configPath = expandHome(tool.configPath);
-  const configContents = await readConfigFile(tool.configPath);
+  const configPath =
+    typeof tool.configPath === "function" ? tool.configPath() : expandHome(tool.configPath);
+  const configContents = await readConfigFile(configPath);
   const configured = !!configContents && isConfigured(configContents, "http://localhost:20128");
 
   const result: DetectedTool = {

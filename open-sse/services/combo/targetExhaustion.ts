@@ -21,9 +21,17 @@ import {
   isProviderExhaustedReason,
 } from "../accountFallback.ts";
 import { persistQuotaExhaustionSnapshot } from "../quotaExhaustionSnapshot.ts";
+import {
+  isAlibabaFreeQuotaExhaustedError,
+  isAlibabaModelStudioProvider,
+} from "../alibabaFreeTier.ts";
 import { RateLimitReason } from "../../config/constants.ts";
 import { isProviderCircuitOpenResult, isRequestScopedUpstreamFailure } from "./comboPredicates.ts";
 import { isCloudflareFingerprintRejection } from "../errorClassifier.ts";
+// #10334 — agentrouter-exclusive predicate shared with the persistence layer
+// (markAccountUnavailable) so the same-request combo skip and the persisted
+// connection cooldown agree on exactly which fallbackResult shapes qualify.
+import { isAgentrouterConnectionQuotaScope } from "@/sse/services/auth";
 import type { ComboLogger, ResolvedComboTarget } from "./types.ts";
 
 // Connection-level failure statuses: the provider connection itself is likely bad (upstream
@@ -57,11 +65,18 @@ export type ComboExhaustionSets = {
 
 export type ApplyComboTargetExhaustionOptions = {
   result: { status: number; headers?: Headers | null };
-  fallbackResult: Parameters<typeof isProviderExhaustedReason>[0];
+  fallbackResult: Parameters<typeof isProviderExhaustedReason>[0] & {
+    /** #10334 — agentrouter-exclusive; see isAgentrouterConnectionQuotaScope
+     * (src/sse/services/auth.ts). Populated only for providers in
+     * HONORS_RULE_LOCK_SCOPE_PROVIDERS (today: agentrouter only). */
+    ruleScope?: "model" | "provider" | "connection";
+    permanent?: boolean;
+  };
   errorText: string;
   rawModel: string;
   isTokenLimitBreach: boolean;
   allAccountsRateLimited: boolean;
+  requestScopedFailure: boolean;
   sets: ComboExhaustionSets;
   log: ComboLogger;
   tag: string;
@@ -86,6 +101,56 @@ export function applyComboTargetExhaustion(
   // (resolveQuotaExhaustionCutoffForTarget snapshot fetcher) can skip this node
   // until reset instead of re-paying the 429. Fail-open + idempotent.
   persistQuotaExhaustionSnapshot(provider, target.connectionId ?? undefined, errorText);
+
+  // #10334: agentrouter-exclusive account-wide quota exhaustion ("额度不足")
+  // must skip remaining SAME-CONNECTION targets within THIS request too, not
+  // just via the persisted cooldown markAccountUnavailable applies for
+  // whichever leg runs next. agentrouter is a passthroughModels provider
+  // (hasPerModelQuota() === true), so without this branch the classification
+  // below would fall straight through isProviderQuotaExhausted's
+  // !hasPerModelQuota() guard, and — for the restated-429 case —
+  // markConnectionLevelExhaustion's connection-level guard (429 is not in
+  // CONNECTION_LEVEL_ERROR_STATUSES), marking nothing: combo would keep
+  // burning one upstream call per remaining model of the same exhausted
+  // account. isAgentrouterConnectionQuotaScope is the same guard
+  // markAccountUnavailable uses, so both consumers agree on exactly which
+  // fallbackResult shapes qualify (never a permanent/credits-exhausted
+  // result, even one carrying ruleScope "connection").
+  //
+  // Runs BEFORE the auth-level (401/403) branch below. This is deliberate,
+  // not incidental: the "额度不足" rule matches statuses {400, 403, 429}
+  // (buildAgentrouterRules, providerErrorRules.ts), and Task 1's FORBIDDEN
+  // pre-check (accountFallback.ts ~1729-1751) surfaces `ruleScope:
+  // "connection"` for a RAW 403 carrying that body too — so this branch can
+  // also fire on a 403, not just the restated 429. That is safe: for a 403
+  // this branch and markAuthLevelExhaustion below write the SAME set with
+  // the SAME `${provider}:${connId}` key and both return `true` — they are
+  // set-equivalent for agentrouter on that status. The Cloudflare-1010 and
+  // Alibaba free-tier EXEMPTIONS further down in the 401/403 branch cannot
+  // apply here regardless of ordering: 1010 is a CDN fingerprint rejection
+  // agentrouter's own text never carries, and the Alibaba exemption is
+  // gated on isAlibabaModelStudioProvider(provider), which agentrouter is
+  // not.
+  //
+  // Unlike the connection-level/auth-level branches, this path deliberately
+  // does NOT fall through to markTransientOrConnectionLevel, so
+  // sets.transientRateLimitedProviders is NEVER populated for this failure.
+  // That is required, not just incidental: combo.ts (both dispatchers, see
+  // the `allowRateLimitedConnection` reads keyed off
+  // transientRateLimitedProviders) uses that set to force-allow reusing a
+  // rate-limited CONNECTION for the provider's remaining legs — i.e. it
+  // bypasses the very `rateLimitedUntil` filter this branch (and Task 2's
+  // markAccountUnavailable) just set. Marking it here would silently
+  // re-open the account this branch just cooled down. One secondary
+  // consequence: a SIBLING agentrouter connection that is merely
+  // rate-limited (not the one this branch exhausted) will also no longer be
+  // force-allowed for a later leg on the same provider — a remaining leg
+  // can now resolve to "no credentials available" instead of retrying a
+  // rate-limited sibling account, which is the intended, safer outcome.
+  if (isAgentrouterConnectionQuotaScope(provider, opts.fallbackResult)) {
+    markAgentrouterConnectionQuotaExhaustion(target, { sets, log, tag });
+    return true;
+  }
 
   // #8133/#8137: auth-level failures (401/403) mean that connection's credentials are bad.
   // Split out to keep applyComboTargetExhaustion under the complexity ceiling.
@@ -123,6 +188,14 @@ export function applyComboTargetExhaustion(
     provider &&
     provider !== "unknown"
   ) {
+    // Alibaba free-tier drain is model-scoped — the connection and sibling models stay eligible.
+    if (
+      result.status === 403 &&
+      isAlibabaModelStudioProvider(provider) &&
+      isAlibabaFreeQuotaExhaustedError(opts.errorText)
+    ) {
+      return false;
+    }
     markAuthLevelExhaustion(target, { result, sets, log, tag });
     return true;
   }
@@ -148,12 +221,25 @@ function isProviderQuotaExhausted(
   provider: string | null | undefined,
   opts: Pick<
     ApplyComboTargetExhaustionOptions,
-    "rawModel" | "fallbackResult" | "structuredError" | "errorText" | "allAccountsRateLimited"
+    | "rawModel"
+    | "fallbackResult"
+    | "structuredError"
+    | "errorText"
+    | "allAccountsRateLimited"
+    | "requestScopedFailure"
   >
 ): boolean {
-  const { rawModel, fallbackResult, structuredError, errorText, allAccountsRateLimited } = opts;
+  const {
+    rawModel,
+    fallbackResult,
+    structuredError,
+    errorText,
+    allAccountsRateLimited,
+    requestScopedFailure,
+  } = opts;
   return (
     Boolean(provider && provider !== "unknown") &&
+    !(requestScopedFailure || isRequestScopedUpstreamFailure(structuredError)) &&
     !hasPerModelQuota(provider as string, rawModel) &&
     (isProviderExhaustedReason(fallbackResult) ||
       classifyErrorText(structuredError?.code || errorText) === RateLimitReason.QUOTA_EXHAUSTED ||
@@ -183,7 +269,17 @@ function markTransientOrConnectionLevel(
   target: ResolvedComboTarget,
   opts: ApplyComboTargetExhaustionOptions
 ): void {
-  const { result, errorText, rawModel, isTokenLimitBreach, sets, log, tag, structuredError } = opts;
+  const {
+    result,
+    errorText,
+    rawModel,
+    isTokenLimitBreach,
+    requestScopedFailure,
+    sets,
+    log,
+    tag,
+    structuredError,
+  } = opts;
   const provider = target.provider;
   if (result.status === 429 && !isTokenLimitBreach && provider && provider !== "unknown") {
     sets.transientRateLimitedProviders.add(provider);
@@ -195,6 +291,7 @@ function markTransientOrConnectionLevel(
     log,
     tag,
     rawModel,
+    requestScopedFailure,
     structuredError,
   });
 }
@@ -229,6 +326,35 @@ function markAuthLevelExhaustion(
 }
 
 /**
+ * #10334: agentrouter-exclusive connection-scope account quota exhaustion. Mirrors
+ * markAuthLevelExhaustion's connectionId-present/absent split — when the target carries a
+ * connectionId, only that connection's account is exhausted (sibling agentrouter connections
+ * for the same user may still have quota); fall back to whole-provider exhaustion only when no
+ * connectionId is available.
+ */
+function markAgentrouterConnectionQuotaExhaustion(
+  target: ResolvedComboTarget,
+  opts: Pick<ApplyComboTargetExhaustionOptions, "sets" | "log" | "tag">
+): void {
+  const { sets, log, tag } = opts;
+  const provider = target.provider;
+  const connId = target.connectionId ?? undefined;
+  if (connId) {
+    sets.exhaustedConnections.add(`${provider}:${connId}`);
+    log.info(
+      tag,
+      `Provider ${provider} connection ${connId} account quota exhausted (rule scope=connection) — marking for skip on remaining targets (#10334)`
+    );
+  } else {
+    sets.exhaustedProviders.add(provider as string);
+    log.info(
+      tag,
+      `Provider ${provider} account quota exhausted (rule scope=connection, no connectionId) — marking for skip on remaining targets (#10334)`
+    );
+  }
+}
+
+/**
  * #1731v2: connection-level errors (408/5xx, excluding the OmniRoute circuit-open signal) suggest
  * the provider connection itself is bad → skip remaining same-connection (or same-provider, when
  * no connectionId) targets this request. Only runs when the provider was NOT already marked fully
@@ -238,16 +364,25 @@ function markConnectionLevelExhaustion(
   target: ResolvedComboTarget,
   opts: Pick<
     ApplyComboTargetExhaustionOptions,
-    "result" | "errorText" | "sets" | "log" | "tag" | "rawModel" | "structuredError"
+    | "result"
+    | "errorText"
+    | "sets"
+    | "log"
+    | "tag"
+    | "rawModel"
+    | "requestScopedFailure"
+    | "structuredError"
   >
 ): void {
-  const { result, errorText, sets, log, tag, rawModel, structuredError } = opts;
+  const { result, errorText, sets, log, tag, rawModel, requestScopedFailure, structuredError } =
+    opts;
   const provider = target.provider;
   if (
     !provider ||
     provider === "unknown" ||
     !CONNECTION_LEVEL_ERROR_STATUSES.includes(result.status) ||
     isProviderCircuitOpenResult(result, errorText) ||
+    requestScopedFailure ||
     isRequestScopedUpstreamFailure(structuredError) ||
     // #5085: empty-content 502 is a healthy connection returning no body — model-level, not
     // connection-level. Don't exhaust the provider; let the remaining legs (incl. same-provider)

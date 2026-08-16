@@ -44,6 +44,27 @@ test("sync mode builds aliases from provider-level synced available models", asy
   assert.equal(aliases["model-a"], "openrouter/shared/model-a");
   assert.equal(aliases["model-b"], "openrouter/shared/model-b");
 });
+test("Crof managed import persists boolean reasoning effort metadata", async () => {
+  const result = await importManagedModels({
+    providerId: "crof",
+    connectionId: "conn-crof",
+    mode: "sync",
+    fetchedModels: [{ id: "crof-managed-model", reasoning_effort: true }],
+  });
+
+  const synced = await modelsDb.getSyncedAvailableModelsForConnection("crof", "conn-crof");
+  assert.deepEqual(synced[0]?.supportedThinkingEfforts, ["none", "low", "medium", "high", "max"]);
+  assert.equal(synced[0]?.supportsThinking, true);
+
+  assert.deepEqual(result.importedModels[0]?.supportedThinkingEfforts, [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "max",
+  ]);
+  assert.equal(result.importedModels[0]?.supportsThinking, true);
+});
 
 test("merge mode builds aliases from discovered models without pruning missing provider aliases", async () => {
   await modelsDb.replaceSyncedAvailableModelsForConnection("openrouter", "conn-a", [
@@ -83,6 +104,55 @@ test("provider-level synced model deletion removes only that provider", async ()
   assert.deepEqual(await modelsDb.getSyncedAvailableModels("openai"), [
     { id: "shared/model-c", name: "Model C", source: "imported" },
   ]);
+});
+
+test("OpenAI import excludes deprecated and shutdown models from new selections", async () => {
+  const result = await importManagedModels({
+    providerId: "openai",
+    connectionId: "openai-conn",
+    mode: "sync",
+    fetchedModels: [
+      { id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+      { id: "gpt-5.2-codex", name: "GPT-5.2 Codex" },
+      { id: "gpt-5.3-chat-latest", name: "GPT-5.3 Chat" },
+    ],
+  });
+
+  assert.deepEqual(
+    result.discoveredModels.map((model) => model.id),
+    ["gpt-5.6-sol"]
+  );
+  assert.deepEqual(
+    (await modelsDb.getSyncedAvailableModels("openai")).map((model) => model.id),
+    ["gpt-5.6-sol"]
+  );
+});
+
+test("OpenAI import excludes image and video generation models from chat selections", async () => {
+  const result = await importManagedModels({
+    providerId: "openai",
+    connectionId: "openai-media-conn",
+    mode: "sync",
+    fetchedModels: [
+      { id: "gpt-5.6-sol", name: "GPT-5.6 Sol" },
+      { id: "gpt-image-2", name: "GPT Image 2" },
+      { id: "sora-2-pro", name: "Sora 2 Pro" },
+      {
+        id: "vendor-image-model",
+        name: "Vendor Image Model",
+        supportedEndpoints: ["/v1/images/generations"],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    result.discoveredModels.map((model) => model.id),
+    ["gpt-5.6-sol"]
+  );
+  assert.deepEqual(
+    (await modelsDb.getSyncedAvailableModels("openai")).map((model) => model.id),
+    ["gpt-5.6-sol"]
+  );
 });
 
 test("pruning stale connection available models during import", async () => {

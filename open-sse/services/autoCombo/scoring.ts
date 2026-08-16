@@ -20,6 +20,7 @@ export interface ScoringFactors {
   specificityMatch: number;
   contextAffinity: number;
   cacheAffinity?: number;
+  sessionAvailability?: number;
   resetWindowAffinity: number;
   connectionDensity: number;
 }
@@ -36,24 +37,26 @@ export interface ScoringWeights {
   specificityMatch: number;
   contextAffinity: number;
   cacheAffinity?: number;
+  sessionAvailability?: number;
   resetWindowAffinity: number;
   connectionDensity: number;
 }
 
 export const DEFAULT_WEIGHTS: ScoringWeights = {
-  quota: 0.15,
-  health: 0.2,
-  costInv: 0.15,
-  latencyInv: 0.12,
-  taskFit: 0.08,
-  stability: 0.05,
-  tierPriority: 0.05,
-  tierAffinity: 0.05,
-  specificityMatch: 0.05,
-  contextAffinity: 0.05,
+  quota: 0.1429,
+  health: 0.1905,
+  costInv: 0.1429,
+  latencyInv: 0.1143,
+  taskFit: 0.0762,
+  stability: 0.0476,
+  tierPriority: 0.0476,
+  tierAffinity: 0.0476,
+  specificityMatch: 0.0476,
+  contextAffinity: 0.0476,
   cacheAffinity: 0,
+  sessionAvailability: 0.0476,
   resetWindowAffinity: 0,
-  connectionDensity: 0.05,
+  connectionDensity: 0.0476,
 };
 
 /** Normalize independently configured UI weights into a scoring distribution. */
@@ -101,6 +104,7 @@ export interface ProviderCandidate {
   contextAffinity?: number;
   /** Score [0..1] for the account selected by the stable prompt-cache key. */
   cacheAffinity?: number;
+  sessionAvailability?: number;
   /** Score [0..1] for quota reset-window preference; sooner selected reset windows score higher. */
   resetWindowAffinity?: number;
   connectionPoolSize?: number;
@@ -135,6 +139,7 @@ export function calculateScore(factors: ScoringFactors, weights: ScoringWeights)
       (weights.specificityMatch ?? 0) * factors.specificityMatch +
       (weights.contextAffinity ?? 0) * factors.contextAffinity +
       (weights.cacheAffinity ?? 0) * (factors.cacheAffinity ?? 0) +
+      (weights.sessionAvailability ?? 0) * (factors.sessionAvailability ?? 1) +
       (weights.resetWindowAffinity ?? 0) * factors.resetWindowAffinity +
       (weights.connectionDensity ?? 0) * factors.connectionDensity
   );
@@ -260,6 +265,7 @@ export function calculateFactors(
     specificityMatch: calculateSpecificityMatch(candidate, manifestHint),
     contextAffinity: clamp01(candidate.contextAffinity ?? 0.5),
     cacheAffinity: clamp01(candidate.cacheAffinity ?? 0),
+    sessionAvailability: clamp01(candidate.sessionAvailability ?? 1),
     resetWindowAffinity: clamp01(candidate.resetWindowAffinity ?? 0.5),
     connectionDensity: clamp01(((candidate.connectionPoolSize ?? 1) - 1) / 10),
   };

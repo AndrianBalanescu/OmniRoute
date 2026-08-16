@@ -9,7 +9,6 @@ import fs from "node:fs";
 import path from "node:path";
 import type { RequestPipelinePayloads } from "@omniroute/open-sse/utils/requestLogger.ts";
 import { getDbInstance } from "../db/core";
-import { collectReferencedArtifacts, selectCallLogIdsBefore } from "./callLogsBoundedQueries";
 import { getRequestDetailLogByCallLogId } from "../db/detailedLogs";
 import { shouldPersistToDisk } from "./migrations";
 import { getCallLogApiKeyContext } from "./callLogApiKeyContext";
@@ -23,13 +22,9 @@ import {
 } from "./tokenAccounting";
 import { isNoLog } from "../compliance/noLog";
 import { protectPayloadForLog, parseStoredPayload } from "../logPayloads";
-import { getCallLogMaxEntries, getCallLogRetentionDays, getCallLogsTableMaxRows } from "../logEnv";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 import {
   CALL_LOGS_DIR,
-  cleanupEmptyCallLogDirs,
-  deleteCallArtifact,
-  listCallLogArtifactFiles,
   readCallArtifact,
   writeCallArtifact,
   type CallLogArtifact,
@@ -45,13 +40,29 @@ import {
   protectPipelinePayloads,
   buildRequestSummary,
 } from "./callLogs/format";
+import {
+  clearArtifactReference,
+  cleanupOrphanCallLogFiles,
+  cleanupOverflowCallLogFiles,
+  deleteCallLogsBefore,
+  trimCallLogsToMaxRows,
+  rotateCallLogs,
+  scheduleCallLogRotation,
+} from "./callLogRotation";
+
+// Re-exported for existing importers (usageDb.ts, compliance/index.ts, purge-logs route,
+// and the call-log rotation/cap test suite) — the implementation now lives in
+// ./callLogRotation.ts (extracted to satisfy the file-size gate, #10125).
+export {
+  cleanupOrphanCallLogFiles,
+  cleanupOverflowCallLogFiles,
+  deleteCallLogsBefore,
+  trimCallLogsToMaxRows,
+  rotateCallLogs,
+  scheduleCallLogRotation,
+};
 
 type JsonRecord = Record<string, unknown>;
-
-const CALL_LOG_ROTATE_THROTTLE_MS = 60_000;
-let lastCallLogRotationScheduledAt = 0;
-let callLogRotateInFlight = false;
-let callLogRotateScheduled = false;
 
 type CallLogSummaryRow = {
   id: string;
@@ -326,154 +337,6 @@ function readLegacyLogFromDisk(entry: {
   return null;
 }
 
-function clearArtifactReference(relativePath: string, nextState: CallLogDetailState) {
-  const db = getDbInstance();
-  db.prepare(
-    `
-      UPDATE call_logs
-      SET detail_state = ?,
-          artifact_relpath = NULL,
-          artifact_size_bytes = NULL,
-          artifact_sha256 = NULL
-      WHERE artifact_relpath = ?
-    `
-  ).run(nextState, relativePath);
-}
-
-function listReferencedArtifacts() {
-  // #5618: paged to avoid an unbounded `.all()` OOM on large call_logs tables.
-  return collectReferencedArtifacts();
-}
-
-// #5217: SQLite caps a statement at SQLITE_MAX_VARIABLE_NUMBER bound params
-// (~999 on many builds). Callers like trimCallLogsToMaxRows() passed up to 5000
-// ids in one `IN (...)` → "too many SQL variables" aborted trimming. Chunk well
-// under the limit so each DELETE/SELECT stays valid.
-const DELETE_ID_CHUNK_SIZE = 500;
-
-function deleteCallLogRowsByIds(ids: string[]): DeleteResult {
-  if (ids.length === 0) {
-    return { deletedRows: 0, deletedArtifacts: 0 };
-  }
-
-  const db = getDbInstance();
-  let deletedRows = 0;
-  let deletedArtifacts = 0;
-
-  for (let i = 0; i < ids.length; i += DELETE_ID_CHUNK_SIZE) {
-    const chunk = ids.slice(i, i + DELETE_ID_CHUNK_SIZE);
-    const placeholders = chunk.map(() => "?").join(", ");
-    const rows = db
-      .prepare(`SELECT artifact_relpath FROM call_logs WHERE id IN (${placeholders})`)
-      .all(...chunk) as Array<{ artifact_relpath: string | null }>;
-
-    const result = db.prepare(`DELETE FROM call_logs WHERE id IN (${placeholders})`).run(...chunk);
-    deletedRows += result.changes;
-    for (const row of rows) {
-      if (deleteCallArtifact(row.artifact_relpath)) {
-        deletedArtifacts++;
-      }
-    }
-  }
-  cleanupEmptyCallLogDirs();
-
-  return {
-    deletedRows,
-    deletedArtifacts,
-  };
-}
-
-export function cleanupOrphanCallLogFiles(baseDir = CALL_LOGS_DIR) {
-  if (!baseDir || !fs.existsSync(baseDir)) return 0;
-
-  try {
-    const referenced = listReferencedArtifacts();
-    let deleted = 0;
-    for (const file of listCallLogArtifactFiles(baseDir)) {
-      if (referenced.has(file.relativePath)) continue;
-      if (deleteCallArtifact(file.relativePath)) {
-        deleted++;
-      }
-    }
-    cleanupEmptyCallLogDirs(baseDir);
-    return deleted;
-  } catch (error) {
-    console.error("[callLogs] Failed to prune orphan request artifacts:", (error as Error).message);
-    return 0;
-  }
-}
-
-export function cleanupOverflowCallLogFiles(baseDir = CALL_LOGS_DIR, maxEntries?: number) {
-  if (!baseDir || !fs.existsSync(baseDir)) return 0;
-
-  const limit = maxEntries ?? getCallLogMaxEntries();
-  if (!Number.isInteger(limit) || limit < 1) return 0;
-
-  try {
-    let deleted = 0;
-    const files = listCallLogArtifactFiles(baseDir);
-    for (const file of files.slice(limit)) {
-      if (deleteCallArtifact(file.relativePath)) {
-        clearArtifactReference(file.relativePath, "missing");
-        deleted++;
-      }
-    }
-    cleanupEmptyCallLogDirs(baseDir);
-    return deleted;
-  } catch (error) {
-    console.error(
-      "[callLogs] Failed to prune overflow request artifacts:",
-      (error as Error).message
-    );
-    return 0;
-  }
-}
-
-export function deleteCallLogsBefore(cutoff: string): DeleteResult {
-  // #5618: page the id selection so a large backlog never loads in one `.all()`.
-  let deletedRows = 0;
-  let deletedArtifacts = 0;
-  for (;;) {
-    const ids = selectCallLogIdsBefore(cutoff);
-    if (ids.length === 0) break;
-    const result = deleteCallLogRowsByIds(ids);
-    deletedRows += result.deletedRows;
-    deletedArtifacts += result.deletedArtifacts;
-    if (result.deletedRows === 0) break;
-  }
-  return { deletedRows, deletedArtifacts };
-}
-
-export function trimCallLogsToMaxRows(maxRows = getCallLogsTableMaxRows()) {
-  if (!Number.isInteger(maxRows) || maxRows < 1) {
-    return { deletedRows: 0, deletedArtifacts: 0 };
-  }
-
-  const db = getDbInstance();
-  let deletedRows = 0;
-  let deletedArtifacts = 0;
-  const batchSize = 5000;
-
-  while (true) {
-    const currentCount = db.prepare("SELECT COUNT(*) AS cnt FROM call_logs").get() as {
-      cnt: number;
-    };
-    if (currentCount.cnt <= maxRows) break;
-
-    const toDelete = Math.min(currentCount.cnt - maxRows, batchSize);
-    const ids = db
-      .prepare("SELECT id FROM call_logs ORDER BY timestamp ASC LIMIT ?")
-      .all(toDelete)
-      .map((row) => String((row as { id: string }).id));
-    const result = deleteCallLogRowsByIds(ids);
-    deletedRows += result.deletedRows;
-    deletedArtifacts += result.deletedArtifacts;
-    if (result.deletedRows === 0) break;
-  }
-
-  return { deletedRows, deletedArtifacts };
-}
-
 function resolveProviderDisplay(
   provider: string | null,
   nodeName: string | null,
@@ -712,54 +575,6 @@ export async function saveCallLog(entry: any) {
   } catch (error) {
     console.error("[callLogs] Failed to save call log:", (error as Error).message);
   }
-}
-
-export function rotateCallLogs() {
-  try {
-    if (!CALL_LOGS_DIR || !fs.existsSync(CALL_LOGS_DIR)) return;
-
-    const retentionMs = getCallLogRetentionDays() * 24 * 60 * 60 * 1000;
-    const cutoff = new Date(Date.now() - retentionMs).toISOString();
-
-    deleteCallLogsBefore(cutoff);
-    trimCallLogsToMaxRows(getCallLogsTableMaxRows());
-    cleanupOverflowCallLogFiles(CALL_LOGS_DIR, getCallLogMaxEntries());
-    cleanupOrphanCallLogFiles(CALL_LOGS_DIR);
-  } catch (error) {
-    console.error("[callLogs] Failed to rotate request artifacts:", (error as Error).message);
-  }
-}
-
-function runScheduledCallLogRotation() {
-  if (callLogRotateInFlight) return;
-  callLogRotateInFlight = true;
-  setImmediate(() => {
-    try {
-      rotateCallLogs();
-    } catch (error) {
-      console.error("[callLogs] Failed to rotate request artifacts:", (error as Error).message);
-    } finally {
-      callLogRotateInFlight = false;
-    }
-  });
-}
-
-export function scheduleCallLogRotation() {
-  if (!CALL_LOGS_DIR) return;
-  const elapsed = Date.now() - lastCallLogRotationScheduledAt;
-  if (elapsed >= CALL_LOG_ROTATE_THROTTLE_MS) {
-    lastCallLogRotationScheduledAt = Date.now();
-    runScheduledCallLogRotation();
-    return;
-  }
-  if (callLogRotateScheduled) return;
-  callLogRotateScheduled = true;
-  lastCallLogRotationScheduledAt = Date.now();
-  const timer = setTimeout(() => {
-    callLogRotateScheduled = false;
-    runScheduledCallLogRotation();
-  }, CALL_LOG_ROTATE_THROTTLE_MS - elapsed);
-  timer.unref?.();
 }
 
 if (shouldPersistToDisk && process.env.NODE_ENV !== "test") {

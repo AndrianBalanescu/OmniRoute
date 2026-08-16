@@ -6,9 +6,9 @@ import {
 } from "@omniroute/open-sse/utils/earlyStreamKeepalive";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
 import { resolveResponsesApiModel } from "@/app/api/internal/codex-responses-ws/modelResolution";
-import { getModelInfo } from "@/sse/services/model";
-import { getComboByName } from "@/lib/db/combos";
+import { getModelInfo, getComboForModel } from "@/sse/services/model";
 import { resolveKeepaliveThreshold } from "@omniroute/open-sse/utils/keepaliveThreshold";
+import { resolveStreamFlag } from "@omniroute/open-sse/utils/aiSdkCompat";
 
 // NOTE: We do NOT call initTranslators() here — the translator registry is
 // bootstrapped at module level inside open-sse/translator/index.ts when it
@@ -57,7 +57,7 @@ export async function withCodexPreferredModel(
     const { model, changed } = await resolveResponsesApiModel(
       body.model,
       getModelInfo,
-      async (name) => !!(await getComboByName(name))
+      async (name) => !!(await getComboForModel(name))
     );
     if (!changed) return { request, body };
 
@@ -92,8 +92,9 @@ async function postHandler(request: any, context: any, preParsedBody: any = null
     request,
     preParsedBody
   );
-  const accept = String(request.headers?.get?.("accept") || "").toLowerCase();
-  if (accept.includes("text/event-stream")) {
+  const accept = String(request.headers?.get?.("accept") || "");
+  const wantsStreaming = resolveStreamFlag(resolvedBody?.stream, accept, "openai-responses");
+  if (wantsStreaming) {
     // Adaptive threshold: web-session and anonymous-fallback providers are slower
     // to produce the first byte, so use a longer keepalive threshold (15s vs 2s).
     // Reuse resolvedBody.model — no extra clone/parse needed (#4041).

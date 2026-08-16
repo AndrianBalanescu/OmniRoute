@@ -154,15 +154,17 @@ export function supportsMaxEffortForProvider(provider: string, model: string): b
   // upstream. Scoped to opencode-go deliberately: OpenRouter's DeepSeek path
   // (pi#4055) is the documented inverse and expects xhigh, not max.
   // Ollama Cloud also accepts literal max (for example GLM 5.2 supports
-  // low|medium|high|max|none) and rejects xhigh.
+  // low|medium|high|max|none) and rejects xhigh; xhigh is mapped to max by the
+  // provider guard in sanitizeReasoningEffortForProvider.
   const isOpencodeGoDeepSeek =
-    provider === "opencode-go" && resolvedModelId.toLowerCase().includes("deepseek");
+    (provider === "opencode-go" || provider === "opencode-zen") &&
+    resolvedModelId.toLowerCase().includes("deepseek");
   const isOllamaCloud = provider === "ollama-cloud";
-  // Kimi K3 only accepts literal max and rejects xhigh natively. Apply this mapping
-  // regardless of provider so that OpenAI-compatible proxies (e.g. TokenRouter)
-  // correctly pass max instead of the internal xhigh top tier.
   const isMoonshotK3 = /^kimi-k3(?:$|-)/i.test(resolvedModelId);
-  return isClaude || isOpencodeGoDeepSeek || isOllamaCloud || isMoonshotK3;
+  // Command Code's upstream API accepts the literal DeepSeek/OpenAI effort value
+  // `max`; do not rewrite it to OmniRoute's internal `xhigh` spelling.
+  const isCommandCode = provider === "command-code";
+  return isClaude || isOpencodeGoDeepSeek || isOllamaCloud || isMoonshotK3 || isCommandCode;
 }
 
 // ── Effort carrier helpers (#7044) ──────────────────────────────────────────
@@ -272,17 +274,48 @@ export function sanitizeReasoningEffortForProvider(
     return stripEffortValue(b, c);
   }
 
-  // Native DeepSeek (api.deepseek.com) — V4 thinking mode accepts reasoning_effort
-  // ONLY as {high, max} (its own top tier is literally "max"). OmniRoute's internal
-  // scale is low|medium|high|xhigh where xhigh is the top, so map onto DeepSeek's
-  // vocabulary: xhigh → max (top→top), low|medium → high (below the enum floor).
-  // high/max pass through unchanged. Without this, the claude→openai translator's
-  // xhigh (and max-normalized-to-xhigh below) reaches DeepSeek as an unknown value,
-  // silently dropping the client's requested effort. This is the INVERSE of the
-  // OpenRouter-DeepSeek path, whose normalized API expects xhigh, not max (pi#4055).
+  // Command Code accepts the literal top-tier value `max`, while the shared
+  // standardization stage may have already represented the client's `max` as
+  // OmniRoute's internal `xhigh`. Convert it back before the upstream request.
+  if (provider === "command-code" && effortStr === "xhigh") {
+    log?.info?.(
+      "REASONING_SANITIZE",
+      `${provider}/${modelStr}: normalized reasoning_effort xhigh → max`
+    );
+    return writeEffortValue(b, "max", c);
+  }
+
+  // Ollama Cloud accepts low|medium|high|max|none and rejects xhigh. Map
+  // xhigh → max (its literal top tier) before the generic xhigh handling so
+  // passthrough (unregistered) models are covered too — the registry opt-out
+  // only covers known models.
+  if (provider === "ollama-cloud" && effortStr === "xhigh") {
+    log?.info?.(
+      "REASONING_SANITIZE",
+      `${provider}/${modelStr}: mapped reasoning_effort xhigh → max`
+    );
+    return writeEffortValue(b, "max", c);
+  }
+
+  // Native DeepSeek (api.deepseek.com) — V4 thinking mode uses the native
+  // {low, high, max} vocabulary on Flash and {high, max} on Pro. OmniRoute's
+  // internal top tier xhigh maps to DeepSeek's literal max. Pro's unsupported
+  // low/medium values still clamp to high; Flash's documented low tier passes
+  // through. This is the INVERSE of the OpenRouter-DeepSeek path, whose
+  // normalized API expects xhigh, not max (pi#4055). `none` is already the
+  // OpenAI no-thinking carrier and passes through unchanged.
   if (provider === "deepseek") {
+    // Match the Flash family even when the sanitizer sees a suffixed or prefixed
+    // id — exact-match would silently clamp Flash `low → high` if a future route
+    // forwards the raw catalog id (`deepseek-v4-flash-low`) before resolution
+    // (#9485 review).
+    const isFlash = modelStr.toLowerCase().startsWith("deepseek-v4-flash");
     const mapped =
-      effortStr === "xhigh" ? "max" : effortStr === "low" || effortStr === "medium" ? "high" : null;
+      effortStr === "xhigh"
+        ? "max"
+        : effortStr === "medium" || (effortStr === "low" && !isFlash)
+          ? "high"
+          : null;
     if (mapped && mapped !== effortStr) {
       log?.info?.(
         "REASONING_SANITIZE",

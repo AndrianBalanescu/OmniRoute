@@ -30,6 +30,7 @@ import {
 export { MAX_ANTIGRAVITY_OUTPUT_TOKENS } from "./antigravityOutputCap.ts";
 import { ensureAntigravityProjectAssigned } from "../services/antigravityProjectBootstrap.ts";
 import { persistDiscoveredAntigravityProjectId } from "../services/antigravityProjectPersist.ts";
+import { markAntigravityMissingCloudCodeProject } from "../services/antigravityProjectPersistence.ts";
 import {
   resolveAntigravityModelId,
   getAntigravityModelFallbacks,
@@ -338,6 +339,45 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/**
+ * Known competing-agent identity sentences that Antigravity's server-side
+ * filter flags, answering with a 429 RESOURCE_EXHAUSTED (port of
+ * decolua/9router b566b20, generalized). Only the identity sentence is
+ * removed — surrounding instruction text is untouched.
+ */
+const COMPETITIVE_AGENT_PROMPT_PATTERNS: RegExp[] = [
+  /\byou are a claude agent\b[^\n]*/i,
+  /\bbuilt on anthropic's claude agent sdk\b[^\n]*/i,
+  /\byou are claude code\b[^\n]*/i,
+  /\byou are an ai assistant created by anthropic\b[^\n]*/i,
+];
+
+/**
+ * Strip competing-agent identity sentences from systemInstruction.parts.
+ * Returns the original reference when nothing matched (no allocation).
+ */
+export function stripCompetitiveAgentPrompts(systemInstruction: unknown): unknown {
+  const record = asRecord(systemInstruction);
+  const parts = Array.isArray(record?.parts) ? (record.parts as Array<Record<string, unknown>>) : [];
+  if (parts.length === 0) return systemInstruction;
+
+  let changed = false;
+  const newParts = parts.map((part) => {
+    if (typeof part.text !== "string" || part.text.length === 0) return part;
+    let text = part.text;
+    for (const pattern of COMPETITIVE_AGENT_PROMPT_PATTERNS) {
+      const stripped = text.replace(pattern, "").replace(/\n{3,}/g, "\n\n").trimStart();
+      if (stripped !== text) {
+        changed = true;
+        text = stripped;
+      }
+    }
+    return text === part.text ? part : { ...part, text };
+  });
+
+  return changed ? { ...record, parts: newParts } : systemInstruction;
+}
+
 function getAntigravitySafetySettings(safetySettings: unknown): unknown[] | undefined {
   if (!Array.isArray(safetySettings)) return undefined;
 
@@ -357,7 +397,10 @@ function sanitizeAntigravityGeminiRequest(
   }
 
   if (asRecord(request.systemInstruction)) {
-    clean.systemInstruction = request.systemInstruction;
+    // #10420: strip competing-agent identity sentences (e.g. "You are a
+    // Claude agent, built on Anthropic's Claude Agent SDK.") that Antigravity
+    // flags and answers with 429 RESOURCE_EXHAUSTED.
+    clean.systemInstruction = stripCompetitiveAgentPrompts(request.systemInstruction);
   }
 
   clean.generationConfig = asRecord(request.generationConfig)
@@ -554,6 +597,7 @@ export class AntigravityExecutor extends BaseExecutor {
     }
 
     if (!projectId) {
+      markAntigravityMissingCloudCodeProject(credentials?.connectionId);
       // (#489) Return a structured error instead of throwing — gives the client a clear signal
       // to show a "Reconnect OAuth" prompt rather than an opaque "Internal Server Error".
       const errorMsg =
@@ -1340,7 +1384,7 @@ export class AntigravityExecutor extends BaseExecutor {
    * the last url with no more retries left) fall through with the resolved retryMs
    * so the caller can still embed a long Retry-After in the final response body.
    */
-  private async handleAntigravityRateLimit(
+  async handleAntigravityRateLimit(
     ctx: AntigravityRateLimitContext
   ): Promise<AntigravityRateLimitOutcome> {
     const { response, log, urlIndex, retryAttemptsByUrl, fallbackCount } = ctx;
@@ -1349,10 +1393,12 @@ export class AntigravityExecutor extends BaseExecutor {
     let retryMs: number | null = this.parseRetryHeaders(response.headers);
 
     // If no retry time in headers, try to parse from error message body
+    let switchAuth = false;
     if (!retryMs) {
       const resolved = await this.tryResolveRetryFromErrorBody(ctx);
       if (resolved.kind === "return") return { action: "return", result: resolved.result };
       retryMs = resolved.retryMs;
+      switchAuth = resolved.switchAuth;
     }
 
     // Bounded short-retry: a non-null retryAfterMs ≤ 60s covers nearly every
@@ -1363,6 +1409,7 @@ export class AntigravityExecutor extends BaseExecutor {
     if (
       retryMs &&
       retryMs <= LONG_RETRY_THRESHOLD_MS &&
+      !switchAuth &&
       retryAttemptsByUrl[urlIndex] < MAX_AUTO_RETRIES
     ) {
       retryAttemptsByUrl[urlIndex]++;
@@ -1418,7 +1465,8 @@ export class AntigravityExecutor extends BaseExecutor {
   private async tryResolveRetryFromErrorBody(
     ctx: AntigravityRateLimitContext
   ): Promise<
-    { kind: "return"; result: SsePassthroughResult } | { kind: "resolved"; retryMs: number | null }
+    | { kind: "return"; result: SsePassthroughResult }
+    | { kind: "resolved"; retryMs: number | null; switchAuth: boolean }
   > {
     const {
       response,
@@ -1488,13 +1536,17 @@ export class AntigravityExecutor extends BaseExecutor {
         if (retryMs) markConnectionQuotaExhausted(accountId, retryMs);
       }
 
-      return { kind: "resolved", retryMs };
+      return {
+        kind: "resolved",
+        retryMs,
+        switchAuth: decision.kind === "short_cooldown_switch_auth",
+      };
     } catch (error) {
       if (signal?.aborted || isAbortError(error)) {
         throw signal?.reason ?? error;
       }
       // Ignore parse errors, will fall back to exponential backoff
-      return { kind: "resolved", retryMs: null };
+      return { kind: "resolved", retryMs: null, switchAuth: false };
     }
   }
 

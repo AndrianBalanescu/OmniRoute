@@ -595,11 +595,10 @@ test("chat pipeline persists Codex responses cache and reasoning tokens to call 
   assert.equal(callLog.tokens.reasoning, 13);
 });
 
-test("chat pipeline applies global Codex priority service tier inside combos", async () => {
-  await seedConnection("codex", { apiKey: "sk-codex-combo-priority" });
-  await settingsDb.updateSettings({
-    codexServiceTier: { enabled: true, tier: "priority" },
-  });
+test("chat pipeline applies Codex OAuth fingerprint and priority tier inside combos", async () => {
+  setCliCompatProviders(["codex"]);
+  await seedConnection("codex", { authType: "oauth", accessToken: "codex-combo-oauth-token" });
+  await settingsDb.updateSettings({ codexServiceTier: { enabled: true, tier: "priority" } });
   await combosDb.createCombo({
     name: "codex-priority-combo",
     strategy: "priority",
@@ -607,10 +606,8 @@ test("chat pipeline applies global Codex priority service tier inside combos", a
     models: ["codex/gpt-5.5"],
   });
   const fetchCalls = [];
-
-  globalThis.fetch = async (url, init: RequestInit = {}) => {
+  globalThis.fetch = async (_url, init: RequestInit = {}) => {
     fetchCalls.push({
-      url: String(url),
       headers: toPlainHeaders(init.headers),
       body: init.body ? JSON.parse(String(init.body)) : null,
     });
@@ -619,21 +616,24 @@ test("chat pipeline applies global Codex priority service tier inside combos", a
 
   const response = await handleChat(
     buildRequest({
+      url: "http://localhost/v1/responses",
+      headers: { "session-id": "combo-client-session" },
       body: {
         model: "codex-priority-combo",
         stream: false,
-        messages: [{ role: "user", content: "Use Codex combo priority" }],
+        input: "Use Codex combo priority",
       },
     })
   );
 
   const json = (await response.json()) as any;
-  assert.equal(response.status, 200);
+  assert.equal(json.object, "response");
   assert.equal(fetchCalls.length, 1);
-  assert.match(fetchCalls[0].url, /\/responses$/);
-  assert.equal(fetchCalls[0].headers.Authorization, "Bearer sk-codex-combo-priority");
-  assert.equal(fetchCalls[0].body.service_tier, "priority");
-  assert.equal(json.choices[0].message.content, "combo priority ok");
+  const [call] = fetchCalls;
+  assert.equal(call.headers.Authorization, "Bearer codex-combo-oauth-token");
+  assert.notEqual(call.headers["session-id"], "combo-client-session");
+  assert.equal(call.headers["session-id"], call.body.client_metadata.session_id);
+  assert.equal(call.body.service_tier, "priority");
 });
 
 test("chat pipeline applies Codex CLI fingerprint to OAuth responses requests", async () => {
@@ -696,7 +696,11 @@ test("chat pipeline applies Codex CLI fingerprint to OAuth responses requests", 
     call.headers["User-Agent"],
     `codex-cli/${getCodexClientVersion()} (Windows 10.0.26200; x64)`
   );
-  assert.equal(call.headers["x-codex-window-id"], "conv_codex_fingerprint:0");
+  // Session convergence derives a fresh session/thread id instead of passing the
+  // client's raw conversation_id straight through, so the window id must be derived
+  // from the (converged) request id header, not the original client-supplied literal.
+  assert.notEqual(call.headers["session_id"], "conv_codex_fingerprint");
+  assert.equal(call.headers["x-codex-window-id"], `${call.headers["x-client-request-id"]}:0`);
   assert.ok(call.headers["x-client-request-id"], "expected Codex request id header");
   assert.ok(call.headers["x-codex-turn-metadata"], "expected Codex turn metadata header");
 

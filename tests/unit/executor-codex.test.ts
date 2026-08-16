@@ -630,6 +630,47 @@ test("CodexExecutor.transformRequest inserts missing function_call_output items"
   });
 });
 
+test("CodexExecutor.transformRequest inserts missing custom_tool_call_output items (#8932)", () => {
+  const executor = new CodexExecutor();
+  const result = executor.transformRequest(
+    "gpt-5.5-xhigh",
+    {
+      _nativeCodexPassthrough: true,
+      input: [
+        {
+          type: "custom_tool_call",
+          call_id: "call_missing_custom_result",
+          name: "apply_patch",
+          input: "*** Begin Patch",
+        },
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Continue." }],
+        },
+      ],
+      stream: false,
+    },
+    false,
+    { requestEndpointPath: "/responses" }
+  );
+
+  const customCallIndex = result.input.findIndex(
+    (item) => item.type === "custom_tool_call" && item.call_id === "call_missing_custom_result"
+  );
+  const missingOutputIndex = result.input.findIndex(
+    (item) =>
+      item.type === "custom_tool_call_output" && item.call_id === "call_missing_custom_result"
+  );
+
+  assert.equal(missingOutputIndex, customCallIndex + 1);
+  assert.deepEqual(result.input[missingOutputIndex], {
+    type: "custom_tool_call_output",
+    call_id: "call_missing_custom_result",
+    output: "",
+  });
+});
+
 test("CodexExecutor.transformRequest preserves native assistant commentary before mapping messages to input", () => {
   const executor = new CodexExecutor();
   const result = executor.transformRequest(
@@ -830,34 +871,6 @@ test("CodexExecutor.transformRequest passes GPT 5.6 Luna xhigh reasoning through
   assert.equal(sanitized.reasoning_effort, undefined);
 });
 
-test("CodexExecutor.transformRequest merges Codex installation metadata", () => {
-  const executor = new CodexExecutor();
-  const result = executor.transformRequest(
-    "gpt-5.5",
-    {
-      model: "gpt-5.5",
-      input: [],
-      client_metadata: { existing: "keep" },
-    },
-    true,
-    {
-      providerSpecificData: {
-        codexClientIdentity: {
-          sessionId: "session-1",
-          turnId: "turn-1",
-          windowId: "session-1:0",
-          installationId: "11111111-1111-4111-a111-111111111111",
-        },
-      },
-    }
-  );
-
-  assert.deepEqual(result.client_metadata, {
-    existing: "keep",
-    "x-codex-installation-id": "11111111-1111-4111-a111-111111111111",
-  });
-});
-
 test("CodexExecutor.transformRequest omits client metadata for compact requests", () => {
   const executor = new CodexExecutor();
   const result = executor.transformRequest(
@@ -1002,20 +1015,25 @@ test("CodexExecutor.execute adds CLI-like session identity headers without chang
       },
     });
 
-    assert.equal(result.response.status, 200);
-    assert.equal(capturedHeaders?.get("session_id"), "conversation-1");
-    assert.equal(capturedHeaders?.get("x-client-request-id"), "conversation-1");
-    assert.equal(capturedHeaders?.get("x-codex-window-id"), "conversation-1:0");
+    const meta = (capturedBody?.client_metadata as Record<string, unknown>) || {};
     const turnMetadata = JSON.parse(capturedHeaders?.get("x-codex-turn-metadata") || "{}");
-    assert.equal(turnMetadata.session_id, "conversation-1");
+    assert.equal(result.response.status, 200);
+    assert.notEqual(capturedHeaders?.get("session_id"), "conversation-1");
+    assert.equal(capturedHeaders?.get("session-id"), capturedHeaders?.get("session_id"));
+    assert.equal(capturedHeaders?.get("thread-id"), capturedHeaders?.get("x-client-request-id"));
+    assert.equal(
+      capturedHeaders?.get("x-codex-window-id"),
+      `${capturedHeaders?.get("x-client-request-id")}:0`
+    );
+    assert.equal(turnMetadata.session_id, capturedHeaders?.get("session_id"));
+    assert.equal(turnMetadata.thread_id, capturedHeaders?.get("thread-id"));
+    assert.equal(turnMetadata.turn_id, meta.turn_id);
+    assert.equal(turnMetadata.window_id, capturedHeaders?.get("x-codex-window-id"));
     assert.equal(turnMetadata.thread_source, "user");
     assert.equal(turnMetadata.sandbox, "none");
     assert.equal(typeof turnMetadata.turn_id, "string");
     assert.equal(capturedBody?.prompt_cache_key, "conversation-1");
-    assert.equal(
-      (capturedBody?.client_metadata as Record<string, unknown>)?.["x-codex-installation-id"],
-      "7f06a8ee-2981-4c81-a4ca-e443b5400a63"
-    );
+    assert.equal(meta["x-codex-installation-id"], "7f06a8ee-2981-4c81-a4ca-e443b5400a63");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1046,9 +1064,11 @@ test("CodexExecutor.execute skips identity headers for unsafe session ids", asyn
       credentials: { accessToken: "codex-token" },
     });
 
-    assert.equal(capturedHeaders?.get("x-client-request-id"), null);
-    assert.equal(capturedHeaders?.get("x-codex-window-id"), null);
-    assert.equal(capturedHeaders?.get("x-codex-turn-metadata"), null);
+    assert.notEqual(capturedHeaders?.get("session_id"), "bad\r\nheader");
+    assert.ok(capturedHeaders?.get("session_id"));
+    assert.ok(capturedHeaders?.get("x-client-request-id"));
+    assert.ok(capturedHeaders?.get("x-codex-window-id"));
+    assert.ok(capturedHeaders?.get("x-codex-turn-metadata"));
   } finally {
     globalThis.fetch = originalFetch;
   }

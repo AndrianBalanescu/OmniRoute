@@ -1,5 +1,6 @@
 import {
   BACKOFF_STEPS_MS,
+  EXECUTOR_CONTRACT_VIOLATION_CODE,
   PROVIDER_PROFILES,
   RateLimitReason,
   HTTP_STATUS,
@@ -14,7 +15,11 @@ import {
   serviceSupervisorCooldown,
   isNimFunctionDegraded,
 } from "../config/errorConfig.ts";
-import { getProviderErrorRuleMatch } from "../config/providerErrorRules.ts";
+import {
+  getProviderErrorRuleMatch,
+  resolveRuleMatchBody,
+  honorsRuleLockScope,
+} from "../config/providerErrorRules.ts";
 import * as rot from "./rotationConfig.ts";
 import { getPassthroughProviders, getProviderCategory } from "../config/providerRegistry.ts";
 import {
@@ -31,6 +36,7 @@ import {
   looksLikeQuotaExhausted,
   type FailureKind,
 } from "../../src/shared/utils/classify429";
+import { recordProviderSuccess as resetCooldownFailureCount } from "./providerCooldownTracker.ts";
 import { resolveProviderId } from "../../src/shared/constants/providers";
 import { resolveUseUpstream429BreakerHints } from "../../src/shared/utils/providerHints";
 import { getCodexModelScope } from "../config/codexQuotaScopes.ts";
@@ -126,6 +132,15 @@ const CONNECTION_FAILURE_DEDUP_MS = 5000;
 const MAX_CONNECTION_FAILURE_DEDUP_ENTRIES = 10_000;
 const lastConnectionFailure = new Map<string, number>();
 
+// Per-provider network-error dedup: several combo targets on the SAME provider can
+// fail the same single network event (a VPN blip) in the same request. Without this,
+// each target counts once and one transient blip opens the whole-provider breaker
+// while the provider is healthy. A genuinely dead proxy persists ACROSS requests
+// (past the window) and still accumulates to its threshold.
+const NETWORK_ERROR_DEDUP_MS = 10_000;
+const MAX_NETWORK_ERROR_DEDUP_ENTRIES = 1000;
+const lastNetworkErrorByProvider = new Map<string, number>();
+
 function pruneConnectionFailureDedupeEntries(): void {
   while (lastConnectionFailure.size > MAX_CONNECTION_FAILURE_DEDUP_ENTRIES) {
     const oldestKey = lastConnectionFailure.keys().next().value;
@@ -197,6 +212,14 @@ export const CREDITS_EXHAUSTED_SIGNALS = [
   "insufficient balance",
   "insufficient_balance",
   "insufficient account balance",
+  "insufficient credit balance",
+  // Command Code returns 400 "You have insufficient credits to make this
+  // request. Please purchase more credits to continue using the service."
+  // when the account's billing credits run out. Without this signal the
+  // error stays unclassified (errorType=null), so the connection is never
+  // marked credits_exhausted and keeps being re-selected on every request.
+  "insufficient credits",
+  "insufficient credit",
 ];
 
 // T11: Signals that indicate OAuth token is invalid/expired (not permanent deactivation)
@@ -974,9 +997,30 @@ export function recordProviderFailure(
   provider: string | null | undefined,
   log?: { warn?: (...args: unknown[]) => void },
   connectionId?: string | null,
-  profile?: ProviderBreakerProfile | null
+  profile?: ProviderBreakerProfile | null,
+  opts?: { isQueueTimeout?: boolean; isNetworkError?: boolean }
 ): void {
   if (!provider) return;
+  // OmniRoute's own rate-limit queue timeout is backpressure we applied, not a
+  // provider failure — the provider never saw the request, so it must not count
+  // toward the provider breaker.
+  if (opts?.isQueueTimeout) return;
+
+  // Network-layer errors (proxy_unreachable) get a separate SAME-PROVIDER dedup, so a
+  // single transient network event is not counted once per combo target (see the
+  // declaration). A dead proxy persists across requests and still accumulates.
+  if (opts?.isNetworkError) {
+    const now = Date.now();
+    const last = lastNetworkErrorByProvider.get(provider);
+    if (last && now - last < NETWORK_ERROR_DEDUP_MS) return;
+    lastNetworkErrorByProvider.delete(provider);
+    lastNetworkErrorByProvider.set(provider, now);
+    while (lastNetworkErrorByProvider.size > MAX_NETWORK_ERROR_DEDUP_ENTRIES) {
+      const oldestKey = lastNetworkErrorByProvider.keys().next().value;
+      if (typeof oldestKey !== "string") break;
+      lastNetworkErrorByProvider.delete(oldestKey);
+    }
+  }
 
   // Deduplicate rapid-fire failures from the same connection
   if (connectionId) {
@@ -1001,6 +1045,47 @@ export function recordProviderFailure(
   if (!breaker.canExecute()) {
     log?.warn?.(`[ProviderFailure] ${provider}: circuit breaker opened after repeated failures`);
   }
+}
+
+/**
+ * Record a successful request for a provider.
+ * Symmetric counterpart of recordProviderFailure:
+ * - Resets cooldown failureCount (exponential backoff) for all non-OPEN states.
+ * - HALF_OPEN -> CLOSED (probe success), CLOSED/DEGRADED -> decay failureCount.
+ *
+ * When the breaker is OPEN (provider is failing), this is a no-op -- the
+ * cooldown stays intact and the breaker keeps its cooldown period.
+ *
+ * Matches execute()'s behavior: _onSuccess() is called for all non-OPEN states.
+ */
+export function recordProviderSuccess(
+  provider: string | null | undefined,
+  connectionId?: string | null
+): void {
+  if (!provider || provider === "unknown") return;
+
+  const breaker = getProviderBreaker(provider);
+  if (!breaker) return;
+  const breakerState = breaker.getStatus().state;
+
+  // When breaker is OPEN, the provider is failing -- do not reset cooldown
+  // even if one request slipped through (dispatched before the open).
+  // The cooldown resets when the breaker reaches HALF_OPEN and the probe
+  // succeeds below.
+  if (breakerState === "OPEN") return;
+
+  // Reset cooldown failureCount (exponential backoff) -- symmetric with
+  // recordProviderCooldown which increments it on each failure.
+  resetCooldownFailureCount(provider, connectionId ?? undefined);
+
+  // Clear failure-dedup window so the next genuine failure is not suppressed.
+  if (connectionId) {
+    lastConnectionFailure.delete(`${provider}:${connectionId}`);
+  }
+
+  // Transition breaker on success, matching execute()'s behavior:
+  // HALF_OPEN -> CLOSED (probe success), CLOSED/DEGRADED -> decay failureCount.
+  breaker._onSuccess();
 }
 
 /**
@@ -1386,7 +1471,27 @@ export function checkFallbackError(
   /** #6061: the provider-configured cooldown (ms) before backoff scaling, surfaced so the
    * caller can persist an explicit reset window instead of the engine's scaled cooldown. */
   configuredCooldownMs?: number;
+  /** #10334 — the matched ProviderErrorRule's declared lock scope, surfaced so the
+   * persistence layer can honor it instead of re-deriving scope from
+   * hasPerModelQuota(). Populated ONLY when honorsRuleLockScope(provider) is true;
+   * always undefined for every other provider, so existing consumers are unaffected. */
+  ruleScope?: "model" | "provider" | "connection";
 } {
+  // #10360: an executor-result contract violation is OUR bug, not the provider's.
+  // Retrying reproduces it verbatim, and cooling the connection down (or tripping
+  // the provider breaker) punishes a healthy account for an internal defect. Must
+  // run before every other classification — the surfaced status is a plain 500,
+  // which the retryable set below would otherwise treat as a transient upstream
+  // failure and hand a backoff cooldown.
+  if (structuredError?.code === EXECUTOR_CONTRACT_VIOLATION_CODE) {
+    return {
+      shouldFallback: false,
+      cooldownMs: 0,
+      reason: EXECUTOR_CONTRACT_VIOLATION_CODE,
+      skipProviderBreaker: true,
+    };
+  }
+
   const svc = serviceSupervisorCooldown(status, headers);
   if (svc) return svc;
   const rg = rot.gateFor(status, rotation?.account);
@@ -1632,6 +1737,36 @@ export function checkFallbackError(
       return { shouldFallback: false, cooldownMs: 0, reason: RateLimitReason.UNKNOWN };
     }
 
+    // #10334 — agentrouter EXCLUSIVE: consult the provider rules BEFORE the
+    // apikey-FORBIDDEN early-return below, so a recognized 403 body (e.g.
+    // "无权访问模型") carries the rule's declared reason/cooldown/scope instead of
+    // the generic short auth cooldown. Gated on honorsRuleLockScope — for any
+    // other provider this block is a no-op and the early-return stays identical.
+    if (status === HTTP_STATUS.FORBIDDEN && provider && honorsRuleLockScope(provider)) {
+      const forbiddenMatch = getProviderErrorRuleMatch(
+        provider,
+        status,
+        headers,
+        resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
+      );
+      if (forbiddenMatch) {
+        const scaled = getScaledBaseCooldown(
+          forbiddenMatch.reason as RateLimitReasonValue,
+          backoffLevel
+        );
+        const ruleCooldownMs = forbiddenMatch.cooldownMs;
+        return {
+          shouldFallback: true,
+          cooldownMs: ruleCooldownMs ?? scaled.cooldownMs,
+          baseCooldownMs: ruleCooldownMs ?? scaled.baseCooldownMs,
+          configuredCooldownMs: ruleCooldownMs,
+          newBackoffLevel: ruleCooldownMs !== undefined ? 0 : scaled.newBackoffLevel,
+          reason: forbiddenMatch.reason,
+          ruleScope: forbiddenMatch.scope,
+        };
+      }
+    }
+
     if (
       status === HTTP_STATUS.FORBIDDEN &&
       provider &&
@@ -1663,7 +1798,12 @@ export function checkFallbackError(
       // specific configured reasons (e.g. 503 → SERVER_ERROR would be
       // shadowed by 503 → MODEL_CAPACITY).
       const providerMatch = provider
-        ? getProviderErrorRuleMatch(provider, status, headers, structuredError ?? null)
+        ? getProviderErrorRuleMatch(
+            provider,
+            status,
+            headers,
+            resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
+          )
         : null;
       const reason = providerMatch
         ? providerMatch.reason
@@ -1679,6 +1819,8 @@ export function checkFallbackError(
         providerMatch?.cooldownMs !== undefined && providerMatch.cooldownMs > 0
           ? providerMatch.cooldownMs
           : undefined;
+      const ruleScope =
+        providerMatch && honorsRuleLockScope(provider) ? providerMatch.scope : undefined;
       const fallback = buildRetryableFallback(reason);
       if (providerCooldownMs !== undefined) {
         return {
@@ -1686,9 +1828,10 @@ export function checkFallbackError(
           cooldownMs: providerCooldownMs,
           baseCooldownMs: providerCooldownMs,
           configuredCooldownMs: providerCooldownMs,
+          ruleScope,
         };
       }
-      return fallback;
+      return { ...fallback, ruleScope };
     }
     // #6842: non-backoff configured rules (e.g. status_402) previously never
     // consulted providerRuleRegistry, so a provider-specific rule (like
@@ -1696,15 +1839,23 @@ export function checkFallbackError(
     // generic zero-cooldown default. Mirror the backoff branch above so
     // provider rules win on cooldown/reason regardless of `backoff`.
     const providerMatch = provider
-      ? getProviderErrorRuleMatch(provider, status, headers, structuredError ?? null)
+      ? getProviderErrorRuleMatch(
+          provider,
+          status,
+          headers,
+          resolveRuleMatchBody(provider, structuredError ?? null, errorStr)
+        )
       : null;
     const cooldownMs = providerMatch?.cooldownMs ?? configuredRule.cooldownMs ?? 0;
+    const ruleScope =
+      providerMatch && honorsRuleLockScope(provider) ? providerMatch.scope : undefined;
     return {
       shouldFallback: true,
       cooldownMs,
       baseCooldownMs: cooldownMs,
       configuredCooldownMs: cooldownMs,
       reason: providerMatch?.reason ?? configuredRule.reason ?? RateLimitReason.UNKNOWN,
+      ruleScope,
     };
   }
 
