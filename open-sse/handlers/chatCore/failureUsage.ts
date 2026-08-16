@@ -21,8 +21,16 @@ export function buildFailureUsageRecord(opts: {
   latencyMs: number;
   endpoint?: string | null | undefined;
 }) {
+  let normalizedProvider = (opts.provider || "unknown").trim();
+  if (
+    normalizedProvider.includes(",") ||
+    normalizedProvider === "-" ||
+    (opts.isCombo && !opts.connectionId)
+  ) {
+    normalizedProvider = "combo";
+  }
   return {
-    provider: opts.provider || "unknown",
+    provider: normalizedProvider,
     model: opts.model || "unknown",
     tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, reasoning: 0 },
     status: String(opts.statusCode),

@@ -583,6 +583,15 @@ export async function GET(request: Request) {
     for (const row of modelRows) {
       const model = row.model as string;
       const provider = row.provider as string;
+      const totalTokens =
+        Number(row.totalTokens) ||
+        Number(row.promptTokens || 0) + Number(row.completionTokens || 0);
+      if (
+        totalTokens === 0 &&
+        (provider?.includes(",") || model?.includes(",") || provider === "-")
+      ) {
+        continue;
+      }
       const short = normalizeModelName(model);
       const cost = computeUsageRowCost(
         row,
