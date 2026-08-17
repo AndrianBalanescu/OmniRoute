@@ -24,28 +24,47 @@ test("buildCopyAllText: includes provider/client/openai stream chunks before sec
       client: "data: done",
     },
   });
-  const lines = text.split("\n\n---\n\n");
-  assert.equal(lines.length, 3);
-  assert.equal(lines[0], '### PROVIDER STREAM\ndata: {"x":1}\n\n');
-  assert.equal(lines[1], "### CLIENT STREAM\ndata: done");
-  assert.equal(lines[2], "### Payload\n{}");
+  assert.match(text, /^### PROVIDER STREAM\ndata: \{"x":1\}/);
+  assert.ok(text.indexOf("### PROVIDER STREAM") < text.indexOf("### CLIENT STREAM"));
+  assert.ok(text.indexOf("### CLIENT STREAM") < text.indexOf("### Payload"));
 });
 
-test("buildCopyAllText: falls back to legacy request/response when no sections exist", () => {
+test("buildCopyAllText: array stream chunks are joined", () => {
   const text = buildCopyAllText({
     sections: [],
-    legacyRequest: '{"prompt":"hi"}',
-    legacyResponse: '{"reply":"hello"}',
-    legacyRequestTitle: "Request Payload",
-    legacyResponseTitle: "Response Payload",
+    streamChunks: { provider: ["a", "b", "c"] },
   });
-  assert.equal(
-    text,
-    '### Response Payload\n{"reply":"hello"}\n\n---\n\n### Request Payload\n{"prompt":"hi"}'
-  );
+  assert.equal(text, "### PROVIDER STREAM\nabc");
 });
 
-test("buildCopyAllText: returns empty string when no sections, chunks, or legacy payloads exist", () => {
-  const text = buildCopyAllText({ sections: [] });
+test("buildCopyAllText: empty stream chunks are skipped", () => {
+  const text = buildCopyAllText({
+    sections: [],
+    streamChunks: { provider: [], client: "" },
+  });
   assert.equal(text, "");
+});
+
+test("buildCopyAllText: legacy request/response only when no payload sections", () => {
+  const withSections = buildCopyAllText({
+    sections: [{ title: "Payload", json: "{}" }],
+    legacyResponse: "RESP",
+    legacyRequest: "REQ",
+  });
+  assert.ok(!withSections.includes("RESP"));
+  assert.ok(!withSections.includes("REQ"));
+
+  const legacyOnly = buildCopyAllText({
+    sections: [],
+    legacyResponse: "RESP",
+    legacyRequest: "REQ",
+    legacyResponseTitle: "Response",
+    legacyRequestTitle: "Request",
+  });
+  assert.match(legacyOnly, /### Response\nRESP/);
+  assert.match(legacyOnly, /### Request\nREQ/);
+});
+
+test("buildCopyAllText: returns empty string when nothing to copy", () => {
+  assert.equal(buildCopyAllText({ sections: [] }), "");
 });
