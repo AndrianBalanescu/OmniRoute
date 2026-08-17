@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-export const dynamic = "force-dynamic";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getCallLogs } from "@/lib/usageDb";
 import { getCompletedDetails, getPendingById } from "@/lib/usage/usageHistory";
-import { getProviderConnections } from "@/lib/db/providers";
+import { getProviderConnections } from "@/lib/localDb";
 import { getProviderNodes } from "@/models";
 import { matchesSearch } from "@/shared/utils/turkishText";
 
@@ -35,7 +34,7 @@ function rowPriority(row: any): number {
  * `buildCallLogListRows()` and would otherwise bypass every filter except
  * `correlationId`. Running the same predicates over the merged rows closes that
  * gap. It is idempotent for DB rows (they already satisfy the predicate) while
- * correctly excluding in-memory rows that do not match.
+ * correctly excluding in-memory rows that do not match. See #logs-search-fix.
  */
 export function rowMatchesFilter(row: any, filter: Record<string, any>): boolean {
   if (!filter) return true;
@@ -44,44 +43,57 @@ export function rowMatchesFilter(row: any, filter: Record<string, any>): boolean
     if (!(Number(row?.status) >= 400 || Boolean(row?.error))) return false;
   } else if (filter.status === "ok") {
     if (!(Number(row?.status) >= 200 && Number(row?.status) < 300)) return false;
-  } else if (typeof filter.status === "number" || (typeof filter.status === "string" && !isNaN(Number(filter.status)))) {
-    if (Number(row?.status) !== Number(filter.status)) return false;
+  } else if (filter.status) {
+    const code = Number.parseInt(String(filter.status), 10);
+    if (!Number.isNaN(code) && Number(row?.status) !== code) return false;
   }
 
-  if (filter.model && !matchesSearch(row?.model || "", String(filter.model))) {
+  if (filter.model && !matchesSearch(`${row?.model || ""} ${row?.requestedModel || ""}`, filter.model)) {
     return false;
   }
-  if (filter.provider && !matchesSearch(row?.provider || "", String(filter.provider))) {
+
+  if (filter.provider && !matchesSearch(row?.provider || "", filter.provider)) {
     return false;
   }
-  if (filter.account && !matchesSearch(row?.account || "", String(filter.account))) {
+
+  if (filter.account && !matchesSearch(`${row?.account || ""} ${row?.connectionId || ""}`, filter.account)) {
     return false;
   }
-  if (filter.apiKey && !matchesSearch(row?.apiKeyName || "", String(filter.apiKey))) {
+
+  if (
+    filter.apiKey &&
+    !matchesSearch(`${row?.apiKeyName || ""} ${row?.apiKeyId || ""}`, filter.apiKey)
+  ) {
     return false;
   }
-  if (filter.combo && !matchesSearch(row?.comboName || "", String(filter.combo))) {
+
+  if (filter.combo && !row?.comboName) {
     return false;
   }
-  if (filter.correlationId && !matchesSearch(row?.correlationId || "", String(filter.correlationId))) {
+
+  if (filter.correlationId && !matchesSearch(row?.correlationId || "", filter.correlationId)) {
     return false;
   }
+
   if (filter.search) {
-    const term = String(filter.search);
-    const haystack = [
+    const searchable = [
       row?.model,
+      row?.requestedModel,
       row?.provider,
       row?.providerDisplay,
       row?.account,
+      row?.connectionId,
       row?.apiKeyName,
+      row?.apiKeyId,
       row?.comboName,
-      row?.correlationId,
       row?.error,
+      row?.correlationId,
+      row?.status,
       row?.path,
     ]
-      .filter(Boolean)
+      .filter((v) => v !== null && v !== undefined)
       .join(" ");
-    if (!matchesSearch(haystack, term)) return false;
+    if (!matchesSearch(searchable, filter.search)) return false;
   }
 
   return true;
@@ -204,9 +216,6 @@ export async function GET(request: Request) {
     if (searchParams.get("correlationId")) filter.correlationId = searchParams.get("correlationId");
     if (searchParams.get("limit")) filter.limit = parseInt(searchParams.get("limit"));
     if (searchParams.get("offset")) filter.offset = parseInt(searchParams.get("offset"));
-    // Home Recent Requests feed sets excludeTests=1 so connection-test probe rows
-    // are dropped at the SQL layer (before LIMIT), not client-side after slicing.
-    if (searchParams.get("excludeTests") === "1") filter.excludeTests = true;
 
     const [logs, connections, providerNodes] = await Promise.all([
       getCallLogs(filter),
@@ -234,7 +243,12 @@ export async function GET(request: Request) {
       completedDetails: getCompletedDetails().values(),
     });
 
+    // The in-memory entries (active/pending + recently-completed) merged in by
+    // buildCallLogListRows() bypass getCallLogs()'s SQL filters. Apply the same
+    // predicates over the merged rows so search, status, model, provider, account,
+    // apiKey, combo and correlationId all behave consistently for every row.
     const filtered = rows.filter((r: any) => rowMatchesFilter(r, filter));
+
     return NextResponse.json(filtered);
   } catch (error) {
     console.error("[API ERROR] /api/usage/call-logs failed:", error);
