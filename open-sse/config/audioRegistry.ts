@@ -7,8 +7,6 @@
  * - /v1/audio/speech (TTS API)
  */
 
-import { getProviderAlias } from "@/shared/constants/providers";
-
 interface AudioModel {
   id: string;
   name: string;
@@ -33,7 +31,24 @@ export interface AudioProvider {
   models: AudioModel[];
 }
 
+const VOICEARENA_WHISPER_URL =
+  process.env.OMNIROUTE_VOICEARENA_WHISPER_URL || "http://localhost:8086/v1/transcribe";
+const VOICEARENA_KOKORO_URL =
+  process.env.OMNIROUTE_VOICEARENA_KOKORO_URL || "http://localhost:8085/v1/tts";
+const VOICEARENA_PIPER_URL =
+  process.env.OMNIROUTE_VOICEARENA_PIPER_URL || "http://localhost:8089/v1/tts";
+const VOICEARENA_INFLECT_URL =
+  process.env.OMNIROUTE_VOICEARENA_INFLECT_URL || "http://localhost:8091/v1/tts";
+
 export const AUDIO_TRANSCRIPTION_PROVIDERS: Record<string, AudioProvider> = {
+  whisper: {
+    id: "whisper",
+    baseUrl: VOICEARENA_WHISPER_URL,
+    authType: "none",
+    authHeader: "none",
+    format: "voicearena-whisper",
+    models: [{ id: "whisper", name: "VoiceArena Whisper (local)" }],
+  },
   vertex: {
     id: "vertex",
     baseUrl: "https://us-central1-aiplatform.googleapis.com/v1",
@@ -300,6 +315,36 @@ export const AUDIO_SPEECH_PROVIDERS: Record<string, AudioProvider> = {
       { id: "gemini-2.5-pro-preview-tts", name: "Gemini 2.5 Pro TTS" },
     ],
   },
+  kokoro: {
+    id: "kokoro",
+    baseUrl: VOICEARENA_KOKORO_URL,
+    authType: "none",
+    authHeader: "none",
+    format: "voicearena-tts",
+    models: [{ id: "kokoro", name: "VoiceArena Kokoro (local)" }],
+  },
+
+  piper: {
+    id: "piper",
+    baseUrl: VOICEARENA_PIPER_URL,
+    authType: "none",
+    authHeader: "none",
+    format: "voicearena-tts",
+    models: [{ id: "piper", name: "VoiceArena Piper (local)" }],
+  },
+
+  inflect: {
+    id: "inflect",
+    baseUrl: VOICEARENA_INFLECT_URL,
+    authType: "none",
+    authHeader: "none",
+    format: "voicearena-tts",
+    models: [
+      { id: "micro", name: "VoiceArena Inflect Micro (local)" },
+      { id: "nano", name: "VoiceArena Inflect Nano (local)" },
+    ],
+  },
+
   vertex: {
     id: "vertex",
     baseUrl: "https://us-central1-aiplatform.googleapis.com/v1",
@@ -692,16 +737,6 @@ function parseAudioModel(
     }
   }
 
-  // Phase 1.5: prefix match against the short provider alias the catalog itself
-  // advertises (e.g. "el/eleven_multilingual_v2" for elevenlabs) when it differs
-  // from the canonical registry key already tried in Phase 1.
-  for (const [providerId] of Object.entries(registry)) {
-    const alias = getProviderAlias(providerId);
-    if (alias && alias !== providerId && modelStr.startsWith(alias + "/")) {
-      return { provider: providerId, model: modelStr.slice(alias.length + 1) };
-    }
-  }
-
   // Phase 2: bare model lookup in hardcoded registry
   for (const [providerId, config] of Object.entries(registry)) {
     if (config.models.some((m) => m.id === modelStr)) {
@@ -734,85 +769,6 @@ export function parseSpeechModel(modelStr: string | null, dynamicProviders?: Aud
 
 export function parseTranslationModel(modelStr: string | null, dynamicProviders?: AudioProvider[]) {
   return parseAudioModel(modelStr, AUDIO_TRANSLATION_PROVIDERS, dynamicProviders);
-}
-
-export interface AudioProviderMatch {
-  provider: string;
-  model: string;
-  config: AudioProvider;
-}
-
-/**
- * Candidate model ids to try when the prefix-matched provider has no credentials.
- * Includes the raw request string (a gateway may list `deepgram/nova-3` as its
- * own model id) plus the parsed native id and `provider/model`.
- */
-export function audioModelAliasCandidates(
-  originalModel: string,
-  failedProvider: string,
-  resolvedModel: string | null
-): string[] {
-  const candidates = [originalModel];
-  if (resolvedModel) {
-    candidates.push(resolvedModel);
-    candidates.push(`${failedProvider}/${resolvedModel}`);
-  }
-  return [...new Set(candidates.filter(Boolean))];
-}
-
-/**
- * Find another registry provider that lists one of the candidate model ids.
- * Used when `deepgram/nova-3` prefix-matches native Deepgram but only a
- * gateway such as OpenRouter has credentials for that model id.
- */
-export function findAlternateAudioProvider(
-  registry: Record<string, AudioProvider>,
-  failedProvider: string,
-  candidates: string[]
-): AudioProviderMatch | null {
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    if (!candidate || seen.has(candidate)) continue;
-    seen.add(candidate);
-    for (const [providerId, config] of Object.entries(registry)) {
-      if (providerId === failedProvider) continue;
-      if (config.models.some((m) => m.id === candidate)) {
-        return { provider: providerId, model: candidate, config };
-      }
-    }
-  }
-  return null;
-}
-
-/** Qualified catalog ids (`gateway/model`) that list the same nested model. */
-export function listAlternateAudioModelIds(
-  registry: Record<string, AudioProvider>,
-  failedProvider: string,
-  candidates: string[]
-): string[] {
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  for (const candidate of candidates) {
-    if (!candidate) continue;
-    for (const [providerId, config] of Object.entries(registry)) {
-      if (providerId === failedProvider) continue;
-      if (!config.models.some((m) => m.id === candidate)) continue;
-      const id = `${providerId}/${candidate}`;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      ids.push(id);
-    }
-  }
-  return ids;
-}
-
-export function missingAudioProviderCredentialsMessage(
-  provider: string,
-  alternateIds: string[] = []
-): string {
-  const base = `No credentials for provider: ${provider}`;
-  if (alternateIds.length === 0) return base;
-  return `${base}. The catalog also lists this model as ${alternateIds.join(", ")}`;
 }
 
 /**

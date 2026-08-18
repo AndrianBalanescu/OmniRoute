@@ -96,6 +96,8 @@ services:
       - default
       # Reach Infinity embeddings (ai-embeddings) + whisper on the homelab proxy net
       - homelab_proxy
+      # Reach the local VoiceArena STT/TTS services by Docker alias.
+      - voicearena
     healthcheck:
       test: ["CMD", "node", "healthcheck.mjs"]
       interval: 30s
@@ -107,6 +109,9 @@ networks:
   homelab_proxy:
     external: true
     name: homelab_proxy
+  voicearena:
+    external: true
+    name: voiceink-tts_default
 
 volumes:
   omniroute-redis-data:

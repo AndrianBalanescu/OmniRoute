@@ -785,6 +785,25 @@ export async function handleAudioTranscription({
   }
 
   // Route to provider-specific handler
+  if (providerConfig.format === "voicearena-whisper") {
+    const { body: whisperBody, contentType } = await buildMultipartBody(file, {}, "audio");
+    try {
+      const res = await fetch(providerConfig.baseUrl, {
+        method: "POST",
+        headers: { "Content-Type": contentType },
+        body: whisperBody,
+      });
+      if (!res.ok) return upstreamErrorResponse(res, await res.text());
+      return new Response(await res.text(), {
+        status: 200,
+        headers: { "Content-Type": res.headers.get("content-type") || "application/json" },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      return errorResponse(500, `Whisper request failed: ${error.message}`);
+    }
+  }
+
   if (providerConfig.format === "vertex-gemini") {
     try {
       const buffer = Buffer.from(await file.arrayBuffer());

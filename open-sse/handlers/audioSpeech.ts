@@ -970,6 +970,21 @@ export async function handleAudioSpeech({
       return handleTortoiseSpeech(providerConfig, body);
     }
 
+    if (providerConfig.format === "voicearena-tts") {
+      const res = await fetch(providerConfig.baseUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: body.input,
+          ...(body.voice ? { reference_id: body.voice } : {}),
+          ...(providerConfig.id === "inflect" && body.speed ? { speed: body.speed } : {}),
+          ...(providerConfig.id === "inflect" ? { model: modelId } : {}),
+        }),
+      });
+      if (!res.ok) return upstreamErrorResponse(res, await res.text());
+      return audioStreamResponse(res);
+    }
+
     // Default: OpenAI-compatible JSON → audio stream proxy (also used by Qwen3)
     const res = await fetch(providerConfig.baseUrl, {
       method: "POST",
