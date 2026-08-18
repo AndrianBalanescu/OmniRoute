@@ -81,6 +81,10 @@ services:
       - DATA_DIR=/app/data
       - REDIS_URL=redis://redis:6379
       - OMNIROUTE_MEMORY_MB=${OMNIROUTE_MEMORY_MB:-4096}
+      - OMNIROUTE_VOICEARENA_WHISPER_URL=http://whisper:8086/v1/transcribe
+      - OMNIROUTE_VOICEARENA_KOKORO_URL=http://kokoro:8085/v1/tts
+      - OMNIROUTE_VOICEARENA_PIPER_URL=http://piper:8089/v1/tts
+      - OMNIROUTE_VOICEARENA_INFLECT_URL=http://inflect:8091/v1/tts
       - BASE_URL=${BASE_URL:-http://100.70.158.21:20128}
       - NEXT_PUBLIC_BASE_URL=${NEXT_PUBLIC_BASE_URL:-http://100.70.158.21:20128}
       - LIVE_WS_ALLOWED_HOSTS=homelab,homelab.taild8b2e2.ts.net,100.70.158.21,192.168.1.205,localhost,127.0.0.1
