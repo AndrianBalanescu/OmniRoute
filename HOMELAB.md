@@ -93,6 +93,23 @@ rm -f ~/.omniroute-dev/storage.sqlite-shm ~/.omniroute-dev/storage.sqlite-wal
   DEV (above) before starting the dev server.
 - Turbopack inotify limit: `sudo sysctl fs.inotify.max_user_watches=524288`.
 
+## VoiceArena Local Audio Providers (STT / TTS)
+
+OmniRoute registers four local audio providers backed by VoiceArena containers on this homelab:
+
+| Provider / Endpoint            | OmniRoute Model                 | Upstream Service    | Container / Port             | Wire Format                 |
+| ------------------------------ | ------------------------------- | ------------------- | ---------------------------- | --------------------------- |
+| STT `/v1/audio/transcriptions` | `whisper/whisper`               | Whisper STT Wrapper | `whisper:8086/v1/transcribe` | Multipart (field `audio`)   |
+| TTS `/v1/audio/speech`         | `kokoro/kokoro`                 | Kokoro ONNX         | `kokoro:8085/v1/tts`         | JSON `{text, reference_id}` |
+| TTS `/v1/audio/speech`         | `piper/piper`                   | Piper TTS           | `piper:8089/v1/tts`          | JSON `{text, reference_id}` |
+| TTS `/v1/audio/speech`         | `inflect/micro`, `inflect/nano` | Inflect TTS         | `inflect:8091/v1/tts`        | JSON `{text, model, speed}` |
+
+### Networking & Configuration
+
+- **Production (Docker `:20128`)**: OmniRoute connects to the `voiceink-tts_default` network declared as `voicearena` in `docker-compose.homelab.yml`. Upstream URLs use container aliases (`http://whisper:8086/v1/transcribe`, `http://kokoro:8085/v1/tts`, `http://piper:8089/v1/tts`, `http://inflect:8091/v1/tts`).
+- **Development (Host `:20228`)**: Defaults to `http://localhost:8086/...` (and ports `8085`, `8089`, `8091`) directly on loopback without extra configuration.
+- **Overrides**: Configurable via `OMNIROUTE_VOICEARENA_WHISPER_URL`, `OMNIROUTE_VOICEARENA_KOKORO_URL`, `OMNIROUTE_VOICEARENA_PIPER_URL`, `OMNIROUTE_VOICEARENA_INFLECT_URL`.
+
 ## Production runtime limits (current, 2026-08-12)
 
 - `mem_limit: 16g`, `memswap_limit: 18g`, `OMNIROUTE_MEMORY_MB: 4096` in
