@@ -95,6 +95,53 @@ export function resetPagerCorruption(): void {
   pagerCorruption = null;
 }
 
+export interface PagerCorruptionNote {
+  source: string;
+  message: string;
+  at: string;
+}
+
+let pagerCorruption: PagerCorruptionNote | null = null;
+
+function pagerErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message?: unknown }).message ?? "");
+  }
+  return String(error ?? "unknown");
+}
+
+export function isSqlitePagerCorruptError(error: unknown): boolean {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? String((error as { code?: unknown }).code || "")
+      : "";
+  const message = pagerErrorMessage(error);
+  return (
+    code === "SQLITE_CORRUPT" ||
+    code === "SQLITE_NOTADB" ||
+    code === "SQLITE_IOERR" ||
+    /malformed|SQLITE_CORRUPT|SQLITE_NOTADB|SQLITE_IOERR/i.test(message)
+  );
+}
+
+export function notePagerCorruption(source: string, error: unknown): void {
+  const message = pagerErrorMessage(error) || "unknown";
+  pagerCorruption = {
+    source,
+    message,
+    at: new Date().toISOString(),
+  };
+}
+
+export function getPagerCorruption(): PagerCorruptionNote | null {
+  return pagerCorruption;
+}
+
+export function resetPagerCorruption(): void {
+  pagerCorruption = null;
+}
+
 interface RunDbHealthCheckOptions {
   autoRepair?: boolean;
   createBackupBeforeRepair?: () => boolean;
