@@ -100,7 +100,8 @@ assert_no_host_build() {
   while read -r pid args; do
     [[ -n "$pid" ]] || continue
     case "$args" in
-      *build-next-isolated*|*"npm run build"*|*"npm run build:release"*|*"next build"*|*esbuild*|*turbopack*)
+      *--service*|*esbuild*--service*) ;;
+      *build-next-isolated*|*"npm run build"*|*"npm run build:release"*|*"next build"*|*turbopack*)
         fail "another host build process is already running (pid $pid); stop it and retry"
         ;;
     esac

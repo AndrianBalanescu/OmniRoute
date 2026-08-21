@@ -144,10 +144,20 @@ async function findCustomModelMetadata(providerId: string, modelId: string) {
 // The apiType configured on the provider node ("the account"), used as the fallback
 // signal in detectTestKind. Non-node providers (e.g. "openai") simply have no row —
 // resolve to undefined and let the model-level heuristics decide.
-async function findProviderNodeApiType(providerId: string): Promise<string | undefined> {
+async function findProviderNode(
+  providerId: string
+): Promise<{ apiType?: string; prefix?: string } | undefined> {
   try {
-    const node = (await getProviderNodeById(providerId)) as { apiType?: unknown } | null;
-    return typeof node?.apiType === "string" ? node.apiType : undefined;
+    const node = (await getProviderNodeById(providerId)) as {
+      apiType?: unknown;
+      prefix?: unknown;
+    } | null;
+    if (!node) return undefined;
+    return {
+      apiType: typeof node.apiType === "string" ? node.apiType : undefined,
+      prefix:
+        typeof node.prefix === "string" && node.prefix.trim() ? node.prefix.trim() : undefined,
+    };
   } catch {
     return undefined;
   }
@@ -457,21 +467,22 @@ export async function runSingleModelTest(
     };
   }
 
+  const [customModel, providerNode] = await Promise.all([
+    findCustomModelMetadata(providerId, modelId),
+    findProviderNode(providerId),
+  ]);
+  const nodePrefix = providerNode?.prefix || providerId;
   let fullModelStr = modelId;
-  if (!fullModelStr.includes("/")) {
-    fullModelStr = `${providerId}/${modelId}`;
+  if (!fullModelStr.startsWith(`${nodePrefix}/`) && !fullModelStr.startsWith(`${providerId}/`)) {
+    fullModelStr = `${nodePrefix}/${modelId}`;
   }
   const effectiveTimeoutMs = resolveModelTestTimeoutMs(providerId, fullModelStr, timeoutMs);
 
   const startTime = Date.now();
-  const [customModel, nodeApiType] = await Promise.all([
-    findCustomModelMetadata(providerId, fullModelStr),
-    findProviderNodeApiType(providerId),
-  ]);
-  const { isRerank, isEmbedding, isAudioTranscription } = detectTestKind(
+  const { isRerank, isEmbedding, isAudioTranscription, isAudioSpeech } = detectTestKind(
     fullModelStr,
     customModel,
-    nodeApiType
+    providerNode?.apiType
   );
 
   const testBody = isRerank
