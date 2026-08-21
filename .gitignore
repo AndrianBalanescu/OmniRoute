@@ -25,6 +25,8 @@ _tasks/
 .next/**
 .build/**
 .out/**
+.sandbox/
+*.db
 
 # Stryker mutation testing — ephemeral sandbox + generated reports (never commit)
 .stryker-tmp/
