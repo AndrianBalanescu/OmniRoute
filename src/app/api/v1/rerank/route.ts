@@ -10,15 +10,14 @@ import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
 import { v1RerankSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
-import { getCachedProviderNodes } from "@/lib/db/readCache";
+import { getCachedProviderNodes } from "@/lib/localDb";
 import {
   isAllRateLimitedCredentials,
   rateLimitedProviderResponse,
 } from "@/app/api/v1/_shared/rateLimit";
-import { saveCallLog } from "@/lib/usageDb";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { generateRequestId } from "@/shared/utils/requestId";
-import { CORS_HEADERS } from "@omniroute/open-sse/utils/cors.ts";
+import { saveCallLog } from "@/lib/usageDb";
 
 /**
  * Handle CORS preflight
@@ -57,6 +56,7 @@ function buildDynamicRerankProvider(node: any) {
  * and local provider_nodes (oMLX, vLLM, etc.) via dynamic routing.
  */
 async function postHandler(request, context) {
+  const startTime = Date.now();
   let rawBody;
   try {
     rawBody = await request.json();
@@ -153,8 +153,9 @@ async function postHandler(request, context) {
         return rateLimitedProviderResponse(prefix, credentials);
       }
 
+      const connectionId =
+        (credentials as { connectionId?: string } | null)?.connectionId || undefined;
       const token = credentials?.apiKey || credentials?.accessToken;
-      const startTime = Date.now();
       try {
         let res = await fetch(localProvider.baseUrl, {
           method: "POST",
@@ -171,32 +172,26 @@ async function postHandler(request, context) {
           }),
         });
 
-        // Some local providers (e.g. Infinity, TEI) mount at /rerank rather than /v1/rerank
+        // Infinity exposes /rerank rather than /v1/rerank; fallback if 404
         if (res.status === 404 && localProvider.baseUrl.endsWith("/v1/rerank")) {
           const fallbackUrl = localProvider.baseUrl.replace(/\/v1\/rerank$/, "/rerank");
-          try {
-            const fallbackRes = await fetch(fallbackUrl, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                model: localModel,
-                query: body.query,
-                documents: body.documents,
-                top_n: body.top_n || body.documents.length,
-                return_documents: body.return_documents !== false,
-              }),
-            });
-            if (fallbackRes.ok || fallbackRes.status !== 404) {
-              res = fallbackRes;
-            }
-          } catch {
-            // retain original 404 response if fallback fetch fails
-          }
+          res = await fetch(fallbackUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              model: localModel,
+              query: body.query,
+              documents: body.documents,
+              top_n: body.top_n || body.documents.length,
+              return_documents: body.return_documents !== false,
+            }),
+          });
         }
 
+        const duration = Date.now() - startTime;
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
           const errorMessage =
@@ -207,17 +202,8 @@ async function postHandler(request, context) {
             status: res.status,
             model: body.model,
             provider: prefix,
-            connectionId:
-              (credentials as { connectionId?: string } | null)?.connectionId || undefined,
-            duration: Date.now() - startTime,
-            requestBody: {
-              model: body.model,
-              query: body.query,
-              documents: body.documents,
-              top_n: body.top_n,
-              return_documents: body.return_documents,
-            },
-            responseBody: errData,
+            connectionId,
+            duration,
             error: errorMessage,
             apiKeyId: policy.apiKeyInfo?.id || undefined,
             apiKeyName: policy.apiKeyInfo?.name || undefined,
@@ -226,51 +212,51 @@ async function postHandler(request, context) {
         }
 
         const data = await res.json();
-        const latencyMs = Date.now() - startTime;
         saveCallLog({
           method: "POST",
           path: "/v1/rerank",
           status: 200,
           model: body.model,
           provider: prefix,
-          connectionId:
-            (credentials as { connectionId?: string } | null)?.connectionId || undefined,
-          duration: latencyMs,
+          connectionId,
+          duration,
           tokens: { prompt_tokens: 0, completion_tokens: 0 },
-          requestBody: {
-            model: body.model,
-            query: body.query,
-            documents: body.documents,
-            top_n: body.top_n,
-            return_documents: body.return_documents,
+          responseBody: {
+            results_count: Array.isArray(data?.results) ? data.results.length : 0,
           },
-          responseBody: data,
           apiKeyId: policy.apiKeyInfo?.id || undefined,
           apiKeyName: policy.apiKeyInfo?.name || undefined,
         }).catch(() => {});
 
-        const headers = new Headers({ ...CORS_HEADERS, "Content-Type": "application/json" });
+        if (credentials) {
+          await clearRecoveredProviderState(credentials);
+        }
+
+        const headers = new Headers({
+          "Content-Type": "application/json",
+        });
         attachOmniRouteMetaHeaders(headers, {
           provider: prefix,
           model: localModel,
           costUsd: 0,
-          latencyMs,
+          latencyMs: duration,
           requestId: generateRequestId(),
         });
+
         return new Response(JSON.stringify(data), {
           status: 200,
           headers,
         });
       } catch (err: any) {
+        const duration = Date.now() - startTime;
         saveCallLog({
           method: "POST",
           path: "/v1/rerank",
           status: 500,
           model: body.model,
           provider: prefix,
-          connectionId:
-            (credentials as { connectionId?: string } | null)?.connectionId || undefined,
-          duration: Date.now() - startTime,
+          connectionId,
+          duration,
           error: err.message,
           apiKeyId: policy.apiKeyInfo?.id || undefined,
           apiKeyName: policy.apiKeyInfo?.name || undefined,

@@ -279,8 +279,6 @@ export async function handleRerank({
         provider: providerId,
         connectionId: connectionId || undefined,
         duration: Date.now() - startTime,
-        requestBody,
-        responseBody: errData,
         error: errorMessage,
         apiKeyId: apiKeyId || undefined,
         apiKeyName: apiKeyName || undefined,
@@ -307,8 +305,7 @@ export async function handleRerank({
       connectionId: connectionId || undefined,
       duration: Date.now() - startTime,
       tokens: { prompt_tokens: 0, completion_tokens: 0 },
-      requestBody,
-      responseBody: result,
+      responseBody: { results_count: Array.isArray(result?.results) ? result.results.length : 0 },
       apiKeyId: apiKeyId || undefined,
       apiKeyName: apiKeyName || undefined,
     }).catch(() => {});

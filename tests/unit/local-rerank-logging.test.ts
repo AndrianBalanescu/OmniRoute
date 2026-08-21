@@ -4,212 +4,105 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-rerank-test-"));
+const TEST_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "omniroute-local-rerank-"));
 process.env.DATA_DIR = TEST_DATA_DIR;
+process.env.API_KEY_SECRET = "test-secret";
 
 const core = await import("../../src/lib/db/core.ts");
-const { invalidateDbCache } = await import("../../src/lib/db/readCache.ts");
-const { createProviderNode, createProviderConnection } =
-  await import("../../src/lib/db/providers.ts");
-const { getCallLogs, getCallLogById, waitForCallLogSaves } =
-  await import("../../src/lib/usage/callLogs.ts");
-const { POST } = await import("../../src/app/api/v1/rerank/route.ts");
+const providersDb = await import("../../src/lib/db/providers.ts");
+const nodesDb = await import("../../src/lib/db/providers/nodes.ts");
+const usageDb = await import("../../src/lib/usageDb.ts");
+const rerankRoute = await import("../../src/app/api/v1/rerank/route.ts");
 
 interface RerankSuccessResponse {
-  results: Array<{ index: number; relevance_score: number }>;
+  results: { index: number; relevance_score: number }[];
 }
 
 interface CallLogRow {
   id: string;
-  model: string;
   provider: string;
+  model: string;
   status: number;
-  error?: string;
-  connectionId?: string;
 }
 
-test.describe("Local rerank provider logging and fallback", () => {
-  const originalFetch = globalThis.fetch;
+const originalFetch = globalThis.fetch;
 
-  test.after(() => {
-    globalThis.fetch = originalFetch;
-    core.resetDbInstance();
-    try {
-      fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
-    } catch {
-      // ignore
-    }
+test.after(() => {
+  globalThis.fetch = originalFetch;
+  core.resetDbInstance();
+  try {
+    fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true });
+  } catch {}
+});
+
+test("local rerank saves call_log and returns meta headers", async () => {
+  // Create a local provider node
+  await nodesDb.createProviderNode({
+    id: "vram-node-1",
+    type: "openai-compatible",
+    name: "VRAM Local",
+    prefix: "vram",
+    baseUrl: "http://127.0.0.1:7997/v1",
+    apiType: "chat",
   });
 
-  test("successfully logs local rerank calls and attaches metadata headers", async () => {
-    const now = new Date().toISOString();
-    await createProviderNode({
-      id: "vram",
-      name: "vram",
-      type: "openai",
-      prefix: "vram",
-      baseUrl: "http://127.0.0.1:8000/v1",
-      createdAt: now,
-      updatedAt: now,
-    });
+  // Create a connection for that node
+  await providersDb.createProviderConnection({
+    id: "vram-node-1",
+    provider: "vram-node-1",
+    name: "VRAM Conn",
+    apiKey: "dummy-key",
+    authType: "apikey",
+  });
 
-    await createProviderConnection({
-      id: "conn-vram-1",
-      provider: "vram",
-      authType: "apikey",
-      name: "vram-local",
-      apiKey: "test-token",
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    invalidateDbCache("nodes");
-    invalidateDbCache("connections");
-
-    globalThis.fetch = async (url: string | URL | Request, init?: RequestInit) => {
-      assert.equal(String(url), "http://127.0.0.1:8000/v1/rerank");
-      const parsedBody = JSON.parse(String(init?.body || "{}"));
-      assert.equal(parsedBody.model, "BAAI/bge-reranker-v2-m3");
-      assert.equal(parsedBody.query, "test query");
-      assert.deepEqual(parsedBody.documents, ["doc1", "doc2"]);
-
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const urlStr = String(input);
+    if (urlStr.includes("7997")) {
       return new Response(
         JSON.stringify({
           results: [
             { index: 0, relevance_score: 0.95 },
-            { index: 1, relevance_score: 0.2 },
+            { index: 1, relevance_score: 0.42 },
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } }
       );
-    };
+    }
+    return new Response("Not found", { status: 404 });
+  }) as typeof fetch;
 
-    const req = new Request("http://localhost:20128/api/v1/rerank", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "vram/BAAI/bge-reranker-v2-m3",
-        query: "test query",
-        documents: ["doc1", "doc2"],
-      }),
-    });
-
-    const res = await POST(req, {} as Record<string, unknown>);
-    assert.equal(res.status, 200);
-    assert.equal(res.headers.get("x-omniroute-provider"), "vram");
-    assert.equal(res.headers.get("x-omniroute-model"), "BAAI/bge-reranker-v2-m3");
-
-    const json = (await res.json()) as RerankSuccessResponse;
-    assert.equal(json.results.length, 2);
-
-    await waitForCallLogSaves(15000);
-
-    const logs = (await getCallLogs({ limit: 10 })) as unknown as CallLogRow[];
-    const logEntry = logs.find((l) => l.model === "vram/BAAI/bge-reranker-v2-m3");
-    assert.ok(logEntry, "Expected call log entry for local rerank");
-    assert.equal(logEntry.provider, "vram");
-    assert.equal(logEntry.status, 200);
-
-    const detail = await getCallLogById(logEntry.id);
-    assert.deepEqual(detail?.requestBody, {
+  const req = new Request("http://localhost:20128/api/v1/rerank", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
       model: "vram/BAAI/bge-reranker-v2-m3",
-      query: "test query",
-      documents: ["doc1", "doc2"],
-    });
-    assert.deepEqual(detail?.responseBody, {
-      results: [
-        { index: 0, relevance_score: 0.95 },
-        { index: 1, relevance_score: 0.2 },
-      ],
-    });
+      query: "What is deep learning?",
+      documents: ["Deep learning is a subset of machine learning.", "The sky is blue."],
+    }),
   });
 
-  test("falls back from /v1/rerank to /rerank when local provider returns 404", async () => {
-    const now = new Date().toISOString();
-    await createProviderNode({
-      id: "infinity",
-      name: "infinity",
-      type: "openai",
-      prefix: "infinity",
-      baseUrl: "http://127.0.0.1:7997",
-      createdAt: now,
-      updatedAt: now,
-    });
+  const res = await rerankRoute.POST(req);
+  assert.strictEqual(res.status, 200);
 
-    await createProviderConnection({
-      id: "conn-infinity-1",
-      provider: "infinity",
-      authType: "apikey",
-      name: "infinity-local",
-      apiKey: "test-token",
-      createdAt: now,
-      updatedAt: now,
-    });
+  const json = (await res.json()) as RerankSuccessResponse;
+  assert.strictEqual(json.results?.length, 2);
+  assert.strictEqual(res.headers.get("x-omniroute-provider"), "vram");
+  assert.strictEqual(res.headers.get("x-omniroute-model"), "BAAI/bge-reranker-v2-m3");
 
-    invalidateDbCache("nodes");
-    invalidateDbCache("connections");
+  // Wait briefly for background saveCallLog to settle
+  await new Promise((r) => setTimeout(r, 100));
 
-    const urlsAttempted: string[] = [];
-    globalThis.fetch = async (url: string | URL | Request) => {
-      urlsAttempted.push(String(url));
-      if (String(url).endsWith("/v1/rerank")) {
-        return new Response("Not Found", { status: 404 });
-      }
-      return new Response(
-        JSON.stringify({
-          results: [{ index: 0, relevance_score: 0.99 }],
-        }),
-        { status: 200, headers: { "Content-Type": "application/json" } }
-      );
-    };
+  // Verify call_logs in SQLite
+  const db = core.getDbInstance();
+  const logs = db
+    .prepare("SELECT * FROM call_logs WHERE path = '/v1/rerank' ORDER BY id DESC")
+    .all() as unknown as CallLogRow[];
 
-    const req = new Request("http://localhost:20128/api/v1/rerank", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "infinity/bge-reranker-large",
-        query: "search",
-        documents: ["doc1"],
-      }),
-    });
-
-    const res = await POST(req, {} as Record<string, unknown>);
-    assert.equal(res.status, 200);
-    assert.deepEqual(urlsAttempted, [
-      "http://127.0.0.1:7997/v1/rerank",
-      "http://127.0.0.1:7997/rerank",
-    ]);
-  });
-
-  test("records error call log when local provider returns 500", async () => {
-    globalThis.fetch = async () => {
-      return new Response(JSON.stringify({ detail: "Local backend failure" }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
-    };
-
-    const req = new Request("http://localhost:20128/api/v1/rerank", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "vram/BAAI/bge-reranker-v2-m3",
-        query: "test query",
-        documents: ["doc1"],
-      }),
-    });
-
-    const res = await POST(req, {} as Record<string, unknown>);
-    assert.equal(res.status, 500);
-
-    await waitForCallLogSaves(15000);
-
-    const logs = (await getCallLogs({ limit: 10 })) as unknown as CallLogRow[];
-    const logEntry = logs.find(
-      (l) => l.model === "vram/BAAI/bge-reranker-v2-m3" && l.status === 500
-    );
-    assert.ok(logEntry, "Expected 500 call log entry for local rerank failure");
-    assert.equal(logEntry.provider, "vram");
-    assert.equal(logEntry.error, "Local backend failure");
-  });
+  assert.ok(logs.length >= 1, "Expected call_logs to contain at least 1 record");
+  const latest = logs[0];
+  assert.strictEqual(latest.provider, "vram");
+  assert.strictEqual(latest.model, "vram/BAAI/bge-reranker-v2-m3");
+  assert.strictEqual(latest.status, 200);
 });

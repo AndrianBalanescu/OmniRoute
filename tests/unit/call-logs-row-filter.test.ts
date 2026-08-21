@@ -27,7 +27,10 @@ const baseRow = {
 
 test("rowMatchesFilter: no filter matches every row", () => {
   assert.equal(rowMatchesFilter(baseRow, {}), true);
-  assert.equal(rowMatchesFilter(baseRow, undefined as any), true);
+  assert.equal(
+    rowMatchesFilter(baseRow, undefined as unknown as Parameters<typeof rowMatchesFilter>[1]),
+    true
+  );
 });
 
 test("rowMatchesFilter: search filters in-memory rows by model", () => {
@@ -71,7 +74,10 @@ test("rowMatchesFilter: apiKey filter matches apiKeyName or apiKeyId", () => {
 test("rowMatchesFilter: status error matches status>=400 or error set", () => {
   assert.equal(rowMatchesFilter({ ...baseRow, status: 502 }, { status: "error" }), true);
   assert.equal(rowMatchesFilter({ ...baseRow, status: 200 }, { status: "error" }), false);
-  assert.equal(rowMatchesFilter({ ...baseRow, status: 200, error: "boom" }, { status: "error" }), true);
+  assert.equal(
+    rowMatchesFilter({ ...baseRow, status: 200, error: "boom" }, { status: "error" }),
+    true
+  );
   assert.equal(rowMatchesFilter({ ...baseRow, status: 200 }, { status: "ok" }), true);
   assert.equal(rowMatchesFilter({ ...baseRow, status: 500 }, { status: "ok" }), false);
 });
@@ -87,6 +93,9 @@ test("rowMatchesFilter: combo filter requires comboName", () => {
 });
 
 test("rowMatchesFilter: correlationId filter", () => {
-  assert.equal(rowMatchesFilter({ ...baseRow, correlationId: "corr-abc" }, { correlationId: "corr" }), true);
+  assert.equal(
+    rowMatchesFilter({ ...baseRow, correlationId: "corr-abc" }, { correlationId: "corr" }),
+    true
+  );
   assert.equal(rowMatchesFilter(baseRow, { correlationId: "corr" }), false);
 });

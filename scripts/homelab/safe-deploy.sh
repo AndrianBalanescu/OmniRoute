@@ -54,10 +54,13 @@ Environment overrides:
 EOF
 }
 
+NO_CACHE="${OMNIROUTE_DEPLOY_NO_CACHE:-0}"
+
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --keep-heavy) KEEP_HEAVY=1 ;;
+    --no-cache) NO_CACHE=1 ;;
     --help|-h) usage; exit 0 ;;
     *) fail "unknown argument: $arg" ;;
   esac
@@ -258,6 +261,9 @@ BUILD_ARGS=(
   --build-arg "OMNIROUTE_BUILD_MEMORY_MB=$BUILD_HEAP_MB"
   --build-arg "OMNIROUTE_USE_TURBOPACK=$USE_TURBOPACK"
 )
+if [[ "$NO_CACHE" == "1" ]]; then
+  BUILD_ARGS+=(--no-cache)
+fi
 if [[ "$PULL_BASE_IMAGE" == "1" ]]; then
   BUILD_ARGS+=(--pull)
 fi
