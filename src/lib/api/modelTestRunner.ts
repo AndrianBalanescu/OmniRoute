@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { POST as postChatCompletion } from "@/app/api/v1/chat/completions/route";
 import { POST as postAudioTranscription } from "@/app/api/v1/audio/transcriptions/route";
+import { POST as postAudioSpeech } from "@/app/api/v1/audio/speech/route";
 import { handleValidatedEmbeddingRequestBody } from "@/app/api/v1/embeddings/route";
 import { POST as postRerank } from "@/app/api/v1/rerank/route";
 import {
@@ -232,6 +233,30 @@ export function buildInternalAudioTranscriptionRequest(
   });
 }
 
+export function buildInternalAudioSpeechRequest(
+  model: string,
+  signal: AbortSignal,
+  connectionId?: string
+) {
+  return new Request(`${INTERNAL_ORIGIN}/v1/audio/speech`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Internal-Test": "combo-health-check",
+      "X-OmniRoute-No-Cache": "true",
+      "X-OmniRoute-Compression": "off",
+      "X-Request-Id": `model-test-${randomUUID()}`,
+      ...(connectionId ? { "X-OmniRoute-Connection": connectionId } : {}),
+    },
+    body: JSON.stringify({
+      model,
+      input: "OmniRoute test speech.",
+      voice: "af_heart",
+    }),
+    signal,
+  });
+}
+
 export function detectTestKind(modelStr: string, customModel: any, nodeApiType?: string) {
   const supportedEndpoints = Array.isArray(customModel?.supportedEndpoints)
     ? customModel.supportedEndpoints
@@ -247,15 +272,31 @@ export function detectTestKind(modelStr: string, customModel: any, nodeApiType?:
   const isAudioTranscription =
     apiFormat === "audio-transcriptions" ||
     nodeType === "audio-transcriptions" ||
-    supportedEndpoints.includes("audio-transcriptions");
+    supportedEndpoints.includes("audio-transcriptions") ||
+    lowerModel.includes("whisper") ||
+    lowerModel.includes("transcription");
+  const isAudioSpeech =
+    !isAudioTranscription &&
+    (apiFormat === "audio-speech" ||
+      apiFormat === "speech" ||
+      nodeType === "audio-speech" ||
+      supportedEndpoints.includes("audio-speech") ||
+      supportedEndpoints.includes("speech") ||
+      lowerModel.includes("kokoro") ||
+      lowerModel.includes("voxcpm") ||
+      lowerModel.includes("fish-speech") ||
+      lowerModel.includes("tts") ||
+      lowerModel.includes("speech"));
   const isRerank =
     !isAudioTranscription &&
+    !isAudioSpeech &&
     (apiFormat === "rerank" ||
       nodeType === "rerank" ||
       supportedEndpoints.includes("rerank") ||
       lowerModel.includes("rerank"));
   const isEmbedding =
     !isAudioTranscription &&
+    !isAudioSpeech &&
     !isRerank &&
     (apiFormat === "embeddings" ||
       nodeType === "embeddings" ||
@@ -265,7 +306,7 @@ export function detectTestKind(modelStr: string, customModel: any, nodeApiType?:
       lowerModel.includes("text-embed") ||
       lowerModel.includes("jina-clip") ||
       lowerModel.includes("colbert"));
-  return { isRerank, isEmbedding, isAudioTranscription };
+  return { isRerank, isEmbedding, isAudioTranscription, isAudioSpeech };
 }
 
 /**
@@ -333,6 +374,9 @@ export async function extractModelTestResponseText(
   streamChat: boolean
 ): Promise<ModelTestResponseText> {
   const contentType = (response.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("audio/") || contentType.includes("application/octet-stream")) {
+    return { text: "[Audio generated successfully]" };
+  }
   if (streamChat && !contentType.includes("application/json")) {
     return extractComboTestStreamResult(await response.text());
   }
@@ -441,7 +485,7 @@ export async function runSingleModelTest(
         top_n: 1,
         return_documents: false,
       }
-    : isAudioTranscription
+    : isAudioTranscription || isAudioSpeech
       ? { model: fullModelStr }
       : buildComboTestRequestBody(fullModelStr, isEmbedding, {
           stream: !isEmbedding && streamChat,
@@ -472,6 +516,9 @@ export async function runSingleModelTest(
       return postAudioTranscription(
         buildInternalAudioTranscriptionRequest(fullModelStr, signal, connectionId)
       );
+    }
+    if (isAudioSpeech) {
+      return postAudioSpeech(buildInternalAudioSpeechRequest(fullModelStr, signal, connectionId));
     }
     return postChatCompletion(buildInternalChatRequest(testBody, signal, connectionId));
   };

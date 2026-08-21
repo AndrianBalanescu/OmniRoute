@@ -223,6 +223,14 @@ export function extractComboTestResponseText(responseBody: unknown): string {
     return body.output_text.trim();
   }
 
+  if (typeof body.text === "string" && body.text.trim()) {
+    return body.text.trim();
+  }
+
+  if (Array.isArray(body.results)) {
+    return "[Reranking completed successfully]";
+  }
+
   if (Array.isArray(body.data) && body.data[0]?.embedding) {
     return "[Embedding generated successfully]";
   }
