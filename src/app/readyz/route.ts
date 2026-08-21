@@ -1,6 +1,11 @@
-/**
- * Kubernetes-style readiness alias of /healthz.
- * Same lifecycle phase, same 200/503 bodies. Not a liveness probe.
- */
+import { GET as healthGet, HEAD as healthHead } from "../healthz/route";
+
 export const dynamic = "force-dynamic";
-export { GET, HEAD } from "../healthz/route";
+
+export function GET(): Response {
+  return healthGet();
+}
+
+export function HEAD(): Response {
+  return healthHead();
+}
