@@ -9,22 +9,27 @@ import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import RequestTimeline from "@/shared/components/RequestTimeline";
 import { RequestLoggerV2 } from "@/shared/components";
-import { OverviewStats, OverviewModelBreakdown, OverviewProviderStats } from "./OverviewWidgets";
+import {
+  OverviewStats,
+  OverviewModelBreakdown,
+  OverviewProviderStats,
+  OverviewQuotaFooter,
+} from "./OverviewWidgets";
 
 function LogsOverviewContent() {
   const searchParams = useSearchParams();
   const [initialId] = useState(() => searchParams.get("id"));
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       {/* Micro stat tiles — dense, no chrome */}
       <OverviewStats />
       {/* Timeline canvas — compact: header/toolbar hidden, just the bars */}
-      <div className="rounded-lg border border-[var(--border,#333)] bg-[var(--card-bg,#1e1e2e)] overflow-hidden min-h-0 shrink-0 h-[400px]">
+      <div className="rounded-lg border border-[var(--border,#333)] bg-[var(--card-bg,#1e1e2e)] overflow-hidden min-h-0 shrink-0 h-[380px]">
         <RequestTimeline initialSelectedId={initialId} compact />
       </div>
-      {/* Logs table — compact: toolbar/filters/hidden, only the rows */}
-      <div className="min-h-0 h-[480px] overflow-hidden">
+      {/* Logs table — compact: only small search + scrollable table */}
+      <div className="min-h-0 h-[460px] overflow-hidden">
         <RequestLoggerV2 initialSelectedId={initialId} compact />
       </div>
       {/* Bottom dense widgets — model breakdown (70%) + provider usage (30%) */}
@@ -32,6 +37,8 @@ function LogsOverviewContent() {
         <OverviewModelBreakdown />
         <OverviewProviderStats />
       </div>
+      {/* Bottom footer — Provider Quota limits overview */}
+      <OverviewQuotaFooter />
     </div>
   );
 }

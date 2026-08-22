@@ -5,7 +5,11 @@
 // rendered compact so they fit under the logs table without extra chrome.
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { ModelTable } from "@/shared/components/analytics";
+import { formatCountdown, calculatePercentage } from "../../usage/components/ProviderLimits/utils";
+import { PROVIDER_LABEL } from "../../usage/components/ProviderLimits/constants";
+import { PROVIDER_COLORS } from "@/shared/constants/colors";
 
 type Summary = {
   totalRequests?: number;
@@ -226,6 +230,212 @@ export function OverviewProviderStats() {
             )}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+export interface ProviderQuotaItem {
+  id: string;
+  provider: string;
+  name: string;
+  displayLabel: string;
+  pct: number | null;
+  quotaLabel: string;
+  countdown: string | null;
+  status: "ok" | "alert" | "critical" | "empty";
+  isCredits?: boolean;
+}
+
+export function OverviewQuotaFooter() {
+  const [items, setItems] = useState<ProviderQuotaItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [connRes, limitsRes] = await Promise.all([
+          fetch("/api/providers").then((r) => (r.ok ? r.json() : [])),
+          fetch("/api/usage/provider-limits").then((r) => (r.ok ? r.json() : {})),
+        ]);
+
+        if (cancelled) return;
+
+        const connections = Array.isArray(connRes) ? connRes : [];
+        const caches = limitsRes?.caches || {};
+
+        const parsed: ProviderQuotaItem[] = [];
+
+        for (const conn of connections) {
+          if (!conn.isActive && conn.isActive !== undefined && conn.isActive !== 1) continue;
+          const cache = caches[conn.id] || {};
+          const quotas = Array.isArray(cache.quotas) ? cache.quotas : [];
+          const providerLabel = PROVIDER_LABEL[conn.provider] || conn.provider;
+
+          if (quotas.length === 0) {
+            parsed.push({
+              id: conn.id,
+              provider: conn.provider,
+              name: conn.name || conn.email || conn.provider,
+              displayLabel: providerLabel,
+              pct: null,
+              quotaLabel: "Active",
+              countdown: null,
+              status: "empty",
+            });
+            continue;
+          }
+
+          const primaryQ = quotas.find((q: any) => q && !q.isCredits) || quotas[0];
+          const pct = primaryQ.unlimited
+            ? 100
+            : typeof primaryQ.remainingPercentage === "number"
+              ? Math.round(primaryQ.remainingPercentage)
+              : typeof primaryQ.used === "number" &&
+                  typeof primaryQ.total === "number" &&
+                  primaryQ.total > 0
+                ? Math.round(calculatePercentage(primaryQ.used, primaryQ.total))
+                : null;
+
+          const cd = formatCountdown(primaryQ.resetAt);
+          let status: "ok" | "alert" | "critical" | "empty" = "ok";
+          if (pct === null) status = "empty";
+          else if (pct <= 10) status = "critical";
+          else if (pct <= 30) status = "alert";
+
+          parsed.push({
+            id: conn.id,
+            provider: conn.provider,
+            name: conn.name || conn.email || conn.provider,
+            displayLabel: providerLabel,
+            pct,
+            quotaLabel: primaryQ.displayName || primaryQ.name || "Quota",
+            countdown: cd,
+            status,
+            isCredits: primaryQ.isCredits,
+          });
+        }
+
+        setItems(parsed);
+        setLoading(false);
+      } catch {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    const int = setInterval(load, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(int);
+    };
+  }, []);
+
+  if (loading && items.length === 0) {
+    return (
+      <div className="rounded-lg border border-[var(--border,#333)] bg-[var(--card-bg,#1e1e2e)] p-2">
+        <div className="text-[10px] uppercase tracking-wide text-text-muted">
+          Loading provider quotas…
+        </div>
+      </div>
+    );
+  }
+
+  if (items.length === 0) return null;
+
+  return (
+    <div className="rounded-lg border border-[var(--border,#333)] bg-[var(--card-bg,#1e1e2e)] overflow-hidden">
+      <div className="flex items-center justify-between px-2.5 py-1.5 border-b border-border/60">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted,#888)] font-semibold">
+            Provider Quota Limits
+          </span>
+          <span className="text-[10px] text-text-muted">({items.length} accounts)</span>
+        </div>
+        <Link
+          href="/dashboard/quota"
+          className="text-[10px] text-primary hover:underline flex items-center gap-1 font-medium"
+        >
+          <span>Full Quota Dashboard</span>
+          <span className="material-symbols-outlined text-[12px]">arrow_forward</span>
+        </Link>
+      </div>
+
+      <div className="p-2 overflow-x-auto">
+        <div className="flex items-stretch gap-2 min-w-max">
+          {items.map((item) => {
+            const pc = PROVIDER_COLORS[item.provider] || { bg: "#4b5563", text: "#fff" };
+            const statusColor =
+              item.status === "critical"
+                ? "bg-red-500"
+                : item.status === "alert"
+                  ? "bg-amber-500"
+                  : item.status === "ok"
+                    ? "bg-emerald-500"
+                    : "bg-gray-500";
+
+            return (
+              <div
+                key={item.id}
+                className="flex flex-col justify-between p-2 rounded-md bg-bg-subtle/70 border border-border hover:border-border-subtle transition-all w-[180px] shrink-0"
+              >
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: pc.bg }}
+                    />
+                    <span
+                      className="text-xs font-semibold text-text-primary truncate"
+                      title={item.displayLabel}
+                    >
+                      {item.displayLabel}
+                    </span>
+                  </div>
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${statusColor}`}
+                    title={`Status: ${item.status}`}
+                  />
+                </div>
+
+                <div className="text-[10px] text-text-muted truncate mb-1" title={item.name}>
+                  {item.name}
+                </div>
+
+                <div className="mt-auto pt-1 border-t border-border/40">
+                  <div className="flex items-center justify-between text-[10px] mb-1">
+                    <span className="text-text-muted truncate max-w-[90px]">{item.quotaLabel}</span>
+                    <span className="font-mono font-medium text-text-primary">
+                      {item.pct !== null ? `${item.pct}%` : "Ready"}
+                    </span>
+                  </div>
+
+                  {item.pct !== null && (
+                    <div className="w-full h-1 rounded-full bg-border/60 overflow-hidden mb-1">
+                      <div
+                        className={`h-full ${
+                          item.pct <= 10
+                            ? "bg-red-500"
+                            : item.pct <= 30
+                              ? "bg-amber-500"
+                              : "bg-emerald-500"
+                        }`}
+                        style={{ width: `${Math.min(100, Math.max(0, item.pct))}%` }}
+                      />
+                    </div>
+                  )}
+
+                  {item.countdown && (
+                    <div className="text-[9px] text-text-muted font-mono text-right">
+                      ⏱ {item.countdown}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
