@@ -202,8 +202,17 @@ async function postHandler(request, context) {
             status: res.status,
             model: body.model,
             provider: prefix,
-            connectionId,
+            connectionId:
+              (credentials as { connectionId?: string } | null)?.connectionId || undefined,
             duration,
+            requestBody: {
+              model: body.model,
+              query: body.query,
+              documents: body.documents,
+              top_n: body.top_n,
+              return_documents: body.return_documents,
+            },
+            responseBody: errData,
             error: errorMessage,
             apiKeyId: policy.apiKeyInfo?.id || undefined,
             apiKeyName: policy.apiKeyInfo?.name || undefined,
@@ -218,12 +227,18 @@ async function postHandler(request, context) {
           status: 200,
           model: body.model,
           provider: prefix,
-          connectionId,
+          connectionId:
+            (credentials as { connectionId?: string } | null)?.connectionId || undefined,
           duration,
           tokens: { prompt_tokens: 0, completion_tokens: 0 },
-          responseBody: {
-            results_count: Array.isArray(data?.results) ? data.results.length : 0,
+          requestBody: {
+            model: body.model,
+            query: body.query,
+            documents: body.documents,
+            top_n: body.top_n,
+            return_documents: body.return_documents,
           },
+          responseBody: data,
           apiKeyId: policy.apiKeyInfo?.id || undefined,
           apiKeyName: policy.apiKeyInfo?.name || undefined,
         }).catch(() => {});
@@ -255,8 +270,16 @@ async function postHandler(request, context) {
           status: 500,
           model: body.model,
           provider: prefix,
-          connectionId,
+          connectionId:
+            (credentials as { connectionId?: string } | null)?.connectionId || undefined,
           duration,
+          requestBody: {
+            model: body.model,
+            query: body.query,
+            documents: body.documents,
+            top_n: body.top_n,
+            return_documents: body.return_documents,
+          },
           error: err.message,
           apiKeyId: policy.apiKeyInfo?.id || undefined,
           apiKeyName: policy.apiKeyInfo?.name || undefined,
