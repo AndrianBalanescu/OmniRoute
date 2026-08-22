@@ -9,10 +9,10 @@ process.env.DATA_DIR = TEST_DATA_DIR;
 
 const core = await import("../../src/lib/db/core.ts");
 const { invalidateDbCache } = await import("../../src/lib/db/readCache.ts");
-const { createProviderNode, createProviderConnection } = await import(
-  "../../src/lib/db/providers.ts"
-);
-const { getCallLogs, waitForCallLogSaves } = await import("../../src/lib/usage/callLogs.ts");
+const { createProviderNode, createProviderConnection } =
+  await import("../../src/lib/db/providers.ts");
+const { getCallLogs, getCallLogById, waitForCallLogSaves } =
+  await import("../../src/lib/usage/callLogs.ts");
 const { POST } = await import("../../src/app/api/v1/rerank/route.ts");
 
 interface RerankSuccessResponse {
@@ -20,6 +20,7 @@ interface RerankSuccessResponse {
 }
 
 interface CallLogRow {
+  id: string;
   model: string;
   provider: string;
   status: number;
@@ -108,6 +109,19 @@ test.describe("Local rerank provider logging and fallback", () => {
     assert.ok(logEntry, "Expected call log entry for local rerank");
     assert.equal(logEntry.provider, "vram");
     assert.equal(logEntry.status, 200);
+
+    const detail = await getCallLogById(logEntry.id);
+    assert.deepEqual(detail?.requestBody, {
+      model: "vram/BAAI/bge-reranker-v2-m3",
+      query: "test query",
+      documents: ["doc1", "doc2"],
+    });
+    assert.deepEqual(detail?.responseBody, {
+      results: [
+        { index: 0, relevance_score: 0.95 },
+        { index: 1, relevance_score: 0.2 },
+      ],
+    });
   });
 
   test("falls back from /v1/rerank to /rerank when local provider returns 404", async () => {
