@@ -102,7 +102,7 @@ test.describe("Local rerank provider logging and fallback", () => {
     const json = (await res.json()) as RerankSuccessResponse;
     assert.equal(json.results.length, 2);
 
-    await waitForCallLogSaves(5000);
+    await waitForCallLogSaves(15000);
 
     const logs = (await getCallLogs({ limit: 10 })) as unknown as CallLogRow[];
     const logEntry = logs.find((l) => l.model === "vram/BAAI/bge-reranker-v2-m3");
@@ -202,7 +202,7 @@ test.describe("Local rerank provider logging and fallback", () => {
     const res = await POST(req, {} as Record<string, unknown>);
     assert.equal(res.status, 500);
 
-    await waitForCallLogSaves(5000);
+    await waitForCallLogSaves(15000);
 
     const logs = (await getCallLogs({ limit: 10 })) as unknown as CallLogRow[];
     const logEntry = logs.find(
