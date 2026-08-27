@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { CompressionConfig, CompressionMode, CompressionResult } from "./types.ts";
+import { jsonSha256 } from "../../utils/jsonHash.ts";
 
 export const MEMO_CAP = 5_000;
 
@@ -41,7 +42,9 @@ export function makeMemoKey(
   model?: string,
   supportsVision?: boolean | null
 ): string {
-  const bodyHash = sha256hex(JSON.stringify(body));
+  // Uses streaming jsonSha256 instead of sha256hex(JSON.stringify(body))
+  // to avoid allocating multi-MB string transients on large agent payloads (#7847).
+  const bodyHash = jsonSha256(body);
 
   // #8137: Only include model + supportsVision in the cache key when the compression
   // result actually depends on them. The `lite` engine strips data:image URLs only when
@@ -102,11 +105,15 @@ export function memoLookup(key: string): CompressionResult | null {
   return JSON.parse(JSON.stringify(hit)) as CompressionResult;
 }
 
-export function memoStore(key: string, result: CompressionResult): void {
-  // Clone on STORE too (memoLookup already clones on read). Storing the caller's live
-  // object would let a later mutation of it (e.g. an async engine holding a sub-ref)
-  // corrupt the cached entry. Both ends isolated ⇒ the cache is immutable once stored.
-  boundedSet(key, JSON.parse(JSON.stringify(result)) as CompressionResult);
+export function memoStore(key: string, result: CompressionResult): CompressionResult {
+  // Clone on STORE (memoLookup also clones on read) so the caller's live object — which
+  // an async engine may still hold a sub-ref to — cannot later corrupt the cached entry.
+  // Returns the stored clone so callers that need a fresh instance (the common
+  // `memoStore(key, result); return memoLookup(key)!` idiom) can avoid a redundant
+  // second multi-MB deep clone of the body on the way out.
+  const stored = JSON.parse(JSON.stringify(result)) as CompressionResult;
+  boundedSet(key, stored);
+  return stored;
 }
 
 /** For tests only — clears the in-process memo store. */
