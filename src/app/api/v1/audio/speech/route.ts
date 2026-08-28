@@ -17,7 +17,7 @@ import {
 } from "@/app/api/v1/_shared/rateLimit";
 import { attachOmniRouteMetaToResponse } from "@/domain/omnirouteResponseMeta";
 import { calculateModalCost } from "@/lib/usage/costCalculator";
-import { saveRequestUsage } from "@/lib/usageDb";
+import { saveRequestUsage, saveCallLog } from "@/lib/usageDb";
 import { generateRequestId } from "@/shared/utils/requestId";
 import { getClientIpFromRequest } from "@/lib/ipUtils";
 
@@ -109,6 +109,28 @@ async function postHandler(request, context) {
       requestId: generateRequestId(),
     });
 
+    // Persist to call_logs for real-time overview/request logs
+    saveCallLog({
+      method: "POST",
+      path: "/v1/audio/speech",
+      status: response.status || 200,
+      model: `${provider}/${resolvedModel || body.model}`,
+      provider,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+      duration: Date.now() - startTime,
+      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      requestBody: {
+        model: body.model,
+        input: typeof body.input === "string" ? body.input : undefined,
+        voice: body.voice,
+        response_format: body.response_format,
+        speed: body.speed,
+      },
+      responseBody: { type: "audio", characters },
+      apiKeyId: (apiKeyInfo as { id?: string } | null | undefined)?.id || undefined,
+      apiKeyName: (apiKeyInfo as { name?: string } | null | undefined)?.name || undefined,
+    }).catch(() => {});
+
     // Persist to usage_history so TTS traffic shows up in usage analytics and
     // the per-api-key usage counter (mirrors the chat/embedding paths). Billed
     // by input characters; tokens are 0 for audio.
@@ -126,6 +148,31 @@ async function postHandler(request, context) {
     }).catch((err) => {
       console.error("Failed to save TTS usage stats:", err.message);
     });
+  } else if (response) {
+    const errClone = response.clone();
+    const errData = await errClone.json().catch(() => ({}));
+    const errMessage =
+      (errData as { error?: { message?: string } })?.error?.message ||
+      (errData as { message?: string })?.message ||
+      `HTTP ${response.status}`;
+    saveCallLog({
+      method: "POST",
+      path: "/v1/audio/speech",
+      status: response.status || 500,
+      model: `${provider}/${resolvedModel || body.model}`,
+      provider,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+      duration: Date.now() - startTime,
+      requestBody: {
+        model: body.model,
+        input: typeof body.input === "string" ? body.input : undefined,
+        voice: body.voice,
+      },
+      responseBody: errData,
+      error: errMessage,
+      apiKeyId: (apiKeyInfo as { id?: string } | null | undefined)?.id || undefined,
+      apiKeyName: (apiKeyInfo as { name?: string } | null | undefined)?.name || undefined,
+    }).catch(() => {});
   }
   return response;
 }

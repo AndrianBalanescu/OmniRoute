@@ -29,7 +29,7 @@ import { handleComboChat } from "@omniroute/open-sse/services/combo.ts";
 import { log } from "@omniroute/open-sse/utils/logger.ts";
 import { getAudioDurationSeconds } from "@omniroute/open-sse/utils/audioDuration.ts";
 import { calculateModalCost } from "@/lib/usage/costCalculator";
-import { saveRequestUsage } from "@/lib/usageDb";
+import { saveRequestUsage, saveCallLog } from "@/lib/usageDb";
 
 /**
  * Copy a multipart body, swapping only the `model` field. Combo fan-out needs one
@@ -164,6 +164,37 @@ async function transcribeWithModel(
       requestId: generateRequestId(),
     });
 
+    // Persist to call_logs for real-time overview/request logs
+    const resClone = response.clone();
+    const resData = await resClone.json().catch(() => ({}));
+    saveCallLog({
+      method: "POST",
+      path: "/v1/audio/transcriptions",
+      status: response.status || 200,
+      model: `${provider}/${resolvedModel || modelStr}`,
+      provider,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+      duration: Date.now() - startTime,
+      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      requestBody: {
+        model: modelStr,
+        prompt: typeof formData.get("prompt") === "string" ? formData.get("prompt") : undefined,
+        language:
+          typeof formData.get("language") === "string" ? formData.get("language") : undefined,
+        response_format:
+          typeof formData.get("response_format") === "string"
+            ? formData.get("response_format")
+            : undefined,
+        temperature:
+          typeof formData.get("temperature") === "string" ? formData.get("temperature") : undefined,
+        filename: file instanceof Blob ? (file as { name?: string }).name : undefined,
+        duration_seconds: seconds,
+      },
+      responseBody: resData,
+      apiKeyId: apiKeyInfo?.id || undefined,
+      apiKeyName: apiKeyInfo?.name || undefined,
+    }).catch(() => {});
+
     // Persist to usage_history so STT traffic shows up in usage analytics and
     // the per-api-key usage counter. Billed by audio seconds; tokens are 0.
     saveRequestUsage({
@@ -180,6 +211,32 @@ async function transcribeWithModel(
     }).catch((err) => {
       console.error("Failed to save STT usage stats:", err.message);
     });
+  } else if (response) {
+    const errClone = response.clone();
+    const errData = await errClone.json().catch(() => ({}));
+    const errMessage =
+      (errData as { error?: { message?: string } })?.error?.message ||
+      (errData as { message?: string })?.message ||
+      `HTTP ${response.status}`;
+    saveCallLog({
+      method: "POST",
+      path: "/v1/audio/transcriptions",
+      status: response.status || 500,
+      model: `${provider}/${resolvedModel || modelStr}`,
+      provider,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+      duration: Date.now() - startTime,
+      requestBody: {
+        model: modelStr,
+        prompt: typeof formData.get("prompt") === "string" ? formData.get("prompt") : undefined,
+        language:
+          typeof formData.get("language") === "string" ? formData.get("language") : undefined,
+      },
+      responseBody: errData,
+      error: errMessage,
+      apiKeyId: apiKeyInfo?.id || undefined,
+      apiKeyName: apiKeyInfo?.name || undefined,
+    }).catch(() => {});
   }
   return response;
 }
