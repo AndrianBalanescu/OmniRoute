@@ -2858,11 +2858,6 @@
       "count": 6
     }
   },
-  "src/shared/components/RequestTimeline.tsx": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/shared/components/Sidebar.tsx": {
     "@next/next/no-img-element": {
       "count": 1
