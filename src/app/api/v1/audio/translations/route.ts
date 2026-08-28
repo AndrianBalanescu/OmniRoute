@@ -19,6 +19,7 @@ import {
 } from "@/app/api/v1/_shared/rateLimit";
 import { attachOmniRouteMetaToResponse } from "@/domain/omnirouteResponseMeta";
 import { generateRequestId } from "@/shared/utils/requestId";
+import { saveCallLog } from "@/lib/usageDb";
 
 /**
  * Handle CORS preflight
@@ -110,6 +111,51 @@ export async function POST(request) {
       latencyMs: Date.now() - startTime,
       requestId: generateRequestId(),
     });
+
+    const resClone = response.clone();
+    const resData = await resClone.json().catch(() => ({}));
+    saveCallLog({
+      method: "POST",
+      path: "/v1/audio/translations",
+      status: response.status || 200,
+      model: `${provider}/${resolvedModel || model}`,
+      provider,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+      duration: Date.now() - startTime,
+      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      requestBody: {
+        model: typeof model === "string" ? model : undefined,
+        prompt: typeof formData.get("prompt") === "string" ? formData.get("prompt") : undefined,
+        response_format:
+          typeof formData.get("response_format") === "string"
+            ? formData.get("response_format")
+            : undefined,
+        temperature:
+          typeof formData.get("temperature") === "string" ? formData.get("temperature") : undefined,
+      },
+      responseBody: resData,
+    }).catch(() => {});
+  } else if (response) {
+    const resClone = response.clone();
+    const errData = await resClone.json().catch(() => ({}));
+    saveCallLog({
+      method: "POST",
+      path: "/v1/audio/translations",
+      status: response.status || 500,
+      model: `${provider}/${resolvedModel || model}`,
+      provider,
+      connectionId: (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+      duration: Date.now() - startTime,
+      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      requestBody: {
+        model: typeof model === "string" ? model : undefined,
+        prompt: typeof formData.get("prompt") === "string" ? formData.get("prompt") : undefined,
+      },
+      responseBody: errData,
+      errorMessage:
+        (errData as { error?: { message?: string } })?.error?.message ||
+        `Audio translation failed with status ${response.status}`,
+    }).catch(() => {});
   }
   return response;
 }

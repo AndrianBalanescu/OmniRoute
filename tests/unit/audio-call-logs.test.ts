@@ -11,6 +11,7 @@ const core = await import("../../src/lib/db/core.ts");
 const { createProviderNode } = await import("../../src/lib/db/providers.ts");
 const { getCallLogs } = await import("../../src/lib/usage/callLogs.ts");
 const transcriptionRoute = await import("../../src/app/api/v1/audio/transcriptions/route.ts");
+const translationRoute = await import("../../src/app/api/v1/audio/translations/route.ts");
 const speechRoute = await import("../../src/app/api/v1/audio/speech/route.ts");
 
 const originalFetch = globalThis.fetch;
@@ -78,6 +79,38 @@ test("audio transcriptions route logs calls to call_logs", async () => {
   assert.equal(transcriptionLog.status, 200);
   assert.equal(transcriptionLog.provider, "whisperlocal");
   assert.ok(transcriptionLog.model.includes("whisper-large-v3-turbo"));
+});
+
+test("audio translations route logs calls to call_logs", async () => {
+  globalThis.fetch = async () => {
+    return new Response(JSON.stringify({ text: "Hello world translated" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  const formData = new FormData();
+  formData.append("file", makeWav(), "audio.wav");
+  formData.append("model", "whisperlocal/whisper-large-v3-turbo");
+  formData.append("prompt", "Translate audio to English");
+
+  const req = new Request("http://localhost/v1/audio/translations", {
+    method: "POST",
+    body: formData,
+  });
+
+  const res = await translationRoute.POST(req);
+  assert.equal(res.status, 200);
+
+  // Give asynchronous saveCallLog time to write
+  await new Promise((r) => setTimeout(r, 100));
+
+  const logs = await getCallLogs({ limit: 10 });
+  const translationLog = logs.find((l) => l.path === "/v1/audio/translations");
+  assert.ok(translationLog, "Should persist translation call log");
+  assert.equal(translationLog.status, 200);
+  assert.equal(translationLog.provider, "whisperlocal");
+  assert.ok(translationLog.model.includes("whisper-large-v3-turbo"));
 });
 
 test("audio speech route logs calls to call_logs", async () => {
