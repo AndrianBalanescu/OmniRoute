@@ -18,6 +18,7 @@ import {
 } from "@/app/api/v1/models/catalogSyncedCoverage";
 import { buildAliasMaps } from "@/app/api/v1/models/catalogProviderMaps";
 import { resolveCanonicalProviderId as resolveCanonicalProviderIdFromMaps } from "@/app/api/v1/models/catalogProviderMaps";
+import { getCachedProviderNodes } from "@/lib/db/readCache";
 
 interface GetModelsDependencies {
   createCapabilitySnapshot?: typeof createModelCapabilityResolutionSnapshot;
@@ -161,6 +162,46 @@ export async function handleGetModels(request: Request, dependencies: GetModelsD
           true,
       };
     });
+
+    // Surface models synced from custom provider nodes (e.g. a local VRAM
+    // manager) in the dashboard picker, keyed as <nodePrefix>/<modelId> —
+    // same identity /v1/models serves. Node connections that are inactive are
+    // skipped so the picker matches what can actually serve traffic.
+    try {
+      const [syncedModelsByProvider, nodes] = await Promise.all([
+        getAllActiveSyncedModels(),
+        getCachedProviderNodes(),
+      ]);
+      const seen = new Set(models.map((m: any) => m.fullModel));
+      for (const node of nodes) {
+        const prefix =
+          typeof node?.prefix === "string" && node.prefix.trim() ? node.prefix.trim() : null;
+        if (!prefix) continue;
+        const nodeModels: Array<{ id?: string; name?: string }> =
+          (syncedModelsByProvider as Record<string, Array<{ id?: string; name?: string }>>)[
+            String(node?.id ?? "")
+          ] || [];
+        for (const sm of nodeModels) {
+          if (!sm?.id) continue;
+          const fullModel = `${prefix}/${sm.id}`;
+          if (seen.has(fullModel)) continue;
+          seen.add(fullModel);
+          models.push({
+            provider: prefix,
+            model: sm.id,
+            id: sm.id,
+            name: sm.name || sm.id,
+            fullModel,
+            alias: modelAliases[fullModel] || sm.id,
+            available: true,
+            custom: true,
+            supportsVision: false,
+          });
+        }
+      }
+    } catch {
+      // Node model surfacing is best-effort; static catalog still returns.
+    }
 
     return NextResponse.json({ models });
   } catch (error) {

@@ -13,6 +13,8 @@ import { providerUsesCuratedModelsOnly } from "@/lib/providers/modelListingCapab
 import { mergeModelsWithCustomPrecedence } from "@/lib/providers/modelMetadataPrecedence";
 import {
   getCachedProviderConnectionById,
+  getCachedProviderNodes,
+  getCachedRawProviderConnections,
   getModelIsHidden,
   resolveProxyForProvider,
 } from "@/lib/localDb";
@@ -149,7 +151,28 @@ export async function GET(
       searchParams.get("chatOnly") === "true" ||
       request.headers.get("x-omniroute-model-surface")?.toLowerCase() === "chat";
 
-    const connection = await getCachedProviderConnectionById(id);
+    let connection = await getCachedProviderConnectionById(id);
+    if (!connection) {
+      // Fall back to provider-id matching, then to provider-NODE matching so a
+      // custom node (e.g. a VRAM manager node with its own prefix) resolves to
+      // its connection for model discovery.
+      const connections = await getCachedRawProviderConnections();
+      const match =
+        connections.find((c: any) => c.provider === id && c.isActive !== false) ||
+        connections.find((c: any) => c.provider === id);
+      if (match) {
+        connection = match;
+      } else {
+        const nodes = await getCachedProviderNodes();
+        const matchingNode = nodes.find((n: any) => n.id === id || n.prefix === id);
+        if (matchingNode) {
+          connection =
+            connections.find((c: any) => c.provider === matchingNode.id && c.isActive !== false) ||
+            connections.find((c: any) => c.provider === matchingNode.id) ||
+            connection;
+        }
+      }
+    }
     const connectionProvider =
       typeof connection?.provider === "string" && connection.provider.trim().length > 0
         ? connection.provider

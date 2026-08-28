@@ -47,6 +47,7 @@ test("primary sidebar items place limits after cache", () => {
       "embedded-services",
       "combos",
       "combos-live",
+      "fusion-studio",
       "quota",
       "costs-quota-share",
       "context-settings",
