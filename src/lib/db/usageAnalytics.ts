@@ -293,6 +293,8 @@ export interface ProviderUsageRow {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  durationSeconds?: number;
+  inputCharacters?: number;
   avgLatencyMs: number;
   successfulRequests: number;
 }
@@ -314,6 +316,8 @@ export function getProviderUsageRows(
         COALESCE(SUM(tokens_input), 0) as promptTokens,
         COALESCE(SUM(tokens_output), 0) as completionTokens,
         COALESCE(SUM(tokens_input + tokens_output), 0) as totalTokens,
+        COALESCE(SUM(duration_seconds), 0) as durationSeconds,
+        COALESCE(SUM(input_characters), 0) as inputCharacters,
         COALESCE(AVG(latency_ms), 0) as avgLatencyMs,
         COALESCE(SUM(CASE WHEN success = 1 THEN requests ELSE 0 END), 0) as successfulRequests
       FROM ${unifiedSource} AS _u
