@@ -10,7 +10,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import Card from "../Card";
 import { getModelColor } from "@/shared/constants/colors";
-import { fmtCompact as fmt, fmtFull, fmtCost } from "@/shared/utils/formatting";
+import { fmtCompact as fmt, fmtFull, fmtCost, formatAudioSeconds } from "@/shared/utils/formatting";
 import {
   nextModelBreakdownSort,
   sortModelBreakdownRows,
@@ -129,13 +129,25 @@ export function ModelTable({ byModel, summary }: ModelTableProps) {
                   {fmtFull(m.requests)}
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono text-primary">
-                  {fmt(m.promptTokens)}
+                  {Number(m.promptTokens || 0) > 0 || (!m.durationSeconds && !m.inputCharacters)
+                    ? fmt(m.promptTokens)
+                    : m.durationSeconds
+                      ? formatAudioSeconds(m.durationSeconds)
+                      : m.inputCharacters
+                        ? `${fmt(m.inputCharacters)}c`
+                        : "0"}
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono text-emerald-500">
                   {fmt(m.completionTokens)}
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono font-semibold">
-                  {fmt(m.totalTokens)}
+                  {Number(m.totalTokens || 0) > 0 || (!m.durationSeconds && !m.inputCharacters)
+                    ? fmt(m.totalTokens)
+                    : m.durationSeconds
+                      ? formatAudioSeconds(m.durationSeconds)
+                      : m.inputCharacters
+                        ? `${fmt(m.inputCharacters)}c`
+                        : "0"}
                 </td>
                 <td className="px-4 py-2.5 text-right font-mono text-amber-500">
                   {fmtCost(m.cost)}

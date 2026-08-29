@@ -66,6 +66,8 @@ interface UsageAnalyticsProviderRow {
   provider: string;
   requests: number;
   totalTokens: number;
+  durationSeconds?: number;
+  inputCharacters?: number;
   cost: number;
 }
 
@@ -73,6 +75,8 @@ interface UsageAnalyticsModelRow {
   model: string;
   requests: number;
   totalTokens: number;
+  durationSeconds?: number;
+  inputCharacters?: number;
   cost: number;
 }
 

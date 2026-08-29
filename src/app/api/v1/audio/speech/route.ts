@@ -138,6 +138,7 @@ async function postHandler(request, context) {
       provider,
       model: `${provider}/${resolvedModel || body.model}`,
       tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      inputCharacters: characters,
       status: "200",
       success: true,
       latencyMs: Date.now() - startTime,

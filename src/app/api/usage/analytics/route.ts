@@ -265,6 +265,8 @@ function computeUsageRowCost(
       cacheRead: toNumber(row.cacheReadTokens),
       cacheCreation: toNumber(row.cacheCreationTokens),
       reasoning: toNumber(row.reasoningTokens),
+      durationSeconds: toNumber(row.durationSeconds ?? row.duration_seconds),
+      inputCharacters: toNumber(row.inputCharacters ?? row.input_characters),
     },
     {
       provider,
@@ -614,6 +616,8 @@ export async function GET(request: Request) {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
+        durationSeconds: 0,
+        inputCharacters: 0,
         latencyWeightedTotal: 0,
         successfulRequests: 0,
         lastUsed: "",
@@ -625,6 +629,10 @@ export async function GET(request: Request) {
       existing.completionTokens =
         Number(existing.completionTokens || 0) + Number(row.completionTokens || 0);
       existing.totalTokens = Number(existing.totalTokens || 0) + Number(row.totalTokens || 0);
+      existing.durationSeconds =
+        Number(existing.durationSeconds || 0) + Number(row.durationSeconds || 0);
+      existing.inputCharacters =
+        Number(existing.inputCharacters || 0) + Number(row.inputCharacters || 0);
       existing.latencyWeightedTotal =
         Number(existing.latencyWeightedTotal || 0) + Number(row.avgLatencyMs || 0) * requests;
       existing.successfulRequests =
@@ -645,6 +653,8 @@ export async function GET(request: Request) {
         promptTokens: Number(row.promptTokens),
         completionTokens: Number(row.completionTokens),
         totalTokens: Number(row.totalTokens),
+        durationSeconds: Number(row.durationSeconds || 0),
+        inputCharacters: Number(row.inputCharacters || 0),
         avgLatencyMs:
           Number(row.requests) > 0
             ? Math.round(Number(row.latencyWeightedTotal || 0) / Number(row.requests))
@@ -697,6 +707,8 @@ export async function GET(request: Request) {
       promptTokens: Number(row.promptTokens),
       completionTokens: Number(row.completionTokens),
       totalTokens: Number(row.totalTokens),
+      durationSeconds: Number(row.durationSeconds || 0),
+      inputCharacters: Number(row.inputCharacters || 0),
       avgLatencyMs: Math.round(Number(row.avgLatencyMs)),
       lastUsed: row.lastUsed,
       cost: roundCost(accountCostByAccount.get(toStringValue(row.accountKey, "unknown")) || 0),
@@ -713,6 +725,8 @@ export async function GET(request: Request) {
         promptTokens: number;
         completionTokens: number;
         totalTokens: number;
+        durationSeconds: number;
+        inputCharacters: number;
         cost: number;
       }
     >();
@@ -736,6 +750,8 @@ export async function GET(request: Request) {
         promptTokens: 0,
         completionTokens: 0,
         totalTokens: 0,
+        durationSeconds: 0,
+        inputCharacters: 0,
         cost: 0,
       };
 
@@ -743,6 +759,8 @@ export async function GET(request: Request) {
       existing.promptTokens += Number(row.promptTokens);
       existing.completionTokens += Number(row.completionTokens);
       existing.totalTokens += Number(row.totalTokens);
+      existing.durationSeconds += Number(row.durationSeconds || 0);
+      existing.inputCharacters += Number(row.inputCharacters || 0);
       existing.cost += computeUsageRowCost(
         row,
         pricingByProvider,

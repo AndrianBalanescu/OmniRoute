@@ -125,6 +125,8 @@ export interface DailyCostRow {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   reasoningTokens: number;
+  durationSeconds?: number;
+  inputCharacters?: number;
 }
 
 /**
@@ -144,7 +146,9 @@ export function getDailyCostRows(unifiedSource: string, params: AnalyticsParams)
         COALESCE(SUM(tokens_output), 0) as completionTokens,
         COALESCE(SUM(tokens_cache_read), 0) as cacheReadTokens,
         COALESCE(SUM(tokens_cache_creation), 0) as cacheCreationTokens,
-        COALESCE(SUM(tokens_reasoning), 0) as reasoningTokens
+        COALESCE(SUM(tokens_reasoning), 0) as reasoningTokens,
+        COALESCE(SUM(duration_seconds), 0) as durationSeconds,
+        COALESCE(SUM(input_characters), 0) as inputCharacters
       FROM ${unifiedSource} AS _u
       GROUP BY DATE(timestamp), LOWER(provider), LOWER(model), serviceTier
       ORDER BY date ASC
@@ -197,6 +201,8 @@ export interface ModelUsageRow {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   reasoningTokens: number;
+  durationSeconds?: number;
+  inputCharacters?: number;
   totalTokens: number;
   avgLatencyMs: number;
   successfulRequests: number;
@@ -221,6 +227,8 @@ export function getModelUsageRows(unifiedSource: string, params: AnalyticsParams
         COALESCE(SUM(tokens_cache_read), 0) as cacheReadTokens,
         COALESCE(SUM(tokens_cache_creation), 0) as cacheCreationTokens,
         COALESCE(SUM(tokens_reasoning), 0) as reasoningTokens,
+        COALESCE(SUM(duration_seconds), 0) as durationSeconds,
+        COALESCE(SUM(input_characters), 0) as inputCharacters,
         COALESCE(SUM(tokens_input + tokens_output), 0) as totalTokens,
         COALESCE(AVG(latency_ms), 0) as avgLatencyMs,
         COALESCE(SUM(CASE WHEN success = 1 THEN requests ELSE 0 END), 0) as successfulRequests,
@@ -244,6 +252,8 @@ export interface ProviderCostRow {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   reasoningTokens: number;
+  durationSeconds?: number;
+  inputCharacters?: number;
 }
 
 /**
@@ -265,7 +275,9 @@ export function getProviderCostRows(
         COALESCE(SUM(tokens_output), 0) as completionTokens,
         COALESCE(SUM(tokens_cache_read), 0) as cacheReadTokens,
         COALESCE(SUM(tokens_cache_creation), 0) as cacheCreationTokens,
-        COALESCE(SUM(tokens_reasoning), 0) as reasoningTokens
+        COALESCE(SUM(tokens_reasoning), 0) as reasoningTokens,
+        COALESCE(SUM(duration_seconds), 0) as durationSeconds,
+        COALESCE(SUM(input_characters), 0) as inputCharacters
       FROM ${unifiedSource} AS _u
       GROUP BY LOWER(provider), LOWER(model), serviceTier
     `
@@ -324,6 +336,8 @@ export interface AccountCostRow {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   reasoningTokens: number;
+  durationSeconds?: number;
+  inputCharacters?: number;
 }
 
 /**
@@ -351,7 +365,9 @@ export function getAccountCostRows(whereClause: string, params: AnalyticsParams)
           usage_history.tokens_output,
           usage_history.tokens_cache_read,
           usage_history.tokens_cache_creation,
-          usage_history.tokens_reasoning
+          usage_history.tokens_reasoning,
+          usage_history.duration_seconds,
+          usage_history.input_characters
         FROM usage_history
         ${whereClause}
       )
@@ -364,7 +380,9 @@ export function getAccountCostRows(whereClause: string, params: AnalyticsParams)
         COALESCE(SUM(account_events.tokens_output), 0) as completionTokens,
         COALESCE(SUM(account_events.tokens_cache_read), 0) as cacheReadTokens,
         COALESCE(SUM(account_events.tokens_cache_creation), 0) as cacheCreationTokens,
-        COALESCE(SUM(account_events.tokens_reasoning), 0) as reasoningTokens
+        COALESCE(SUM(account_events.tokens_reasoning), 0) as reasoningTokens,
+        COALESCE(SUM(account_events.duration_seconds), 0) as durationSeconds,
+        COALESCE(SUM(account_events.input_characters), 0) as inputCharacters
       FROM account_events
       GROUP BY accountKey, LOWER(account_events.provider), LOWER(account_events.model), serviceTier
     `
@@ -656,6 +674,8 @@ export interface PresetCostModelRow {
   cacheReadTokens: number;
   cacheCreationTokens: number;
   reasoningTokens: number;
+  durationSeconds?: number;
+  inputCharacters?: number;
 }
 
 /**
@@ -678,7 +698,9 @@ export function getPresetCostModelRows(
         COALESCE(SUM(tokens_output), 0) as completionTokens,
         COALESCE(SUM(tokens_cache_read), 0) as cacheReadTokens,
         COALESCE(SUM(tokens_cache_creation), 0) as cacheCreationTokens,
-        COALESCE(SUM(tokens_reasoning), 0) as reasoningTokens
+        COALESCE(SUM(tokens_reasoning), 0) as reasoningTokens,
+        COALESCE(SUM(duration_seconds), 0) as durationSeconds,
+        COALESCE(SUM(input_characters), 0) as inputCharacters
       FROM ${presetUnifiedSource} AS _pu
       GROUP BY LOWER(model), LOWER(provider), serviceTier
     `

@@ -633,6 +633,14 @@ export interface UsageEntry {
   /** @deprecated legacy snake_case fallback, read only if `comboStrategy` is unset. */
   combo_strategy?: string | null;
   endpoint?: string | null;
+  /** Real audio duration in seconds (for STT / audio-transcriptions per-second pricing). */
+  durationSeconds?: number | null;
+  /** @deprecated legacy snake_case fallback for durationSeconds */
+  duration_seconds?: number | null;
+  /** Input character count (for TTS / audio-speech per-character pricing). */
+  inputCharacters?: number | null;
+  /** @deprecated legacy snake_case fallback for inputCharacters */
+  input_characters?: number | null;
 }
 
 /**
@@ -703,9 +711,10 @@ export async function saveRequestUsage(entry: UsageEntry) {
         `
         INSERT INTO usage_history (provider, model, connection_id, account_key, account_label,
           account_label_priority, api_key_id, api_key_name, tokens_input, tokens_output,
-          tokens_cache_read, tokens_cache_creation, tokens_reasoning, service_tier, status, success,
+          tokens_cache_read, tokens_cache_creation, tokens_reasoning, duration_seconds,
+          input_characters, service_tier, status, success,
           latency_ms, ttft_ms, error_code, combo_strategy, endpoint, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `
       ).run(
         entry.provider || null,
@@ -721,6 +730,12 @@ export async function saveRequestUsage(entry: UsageEntry) {
         getPromptCacheReadTokens(entry.tokens),
         getPromptCacheCreationTokens(entry.tokens),
         getReasoningTokens(entry.tokens),
+        Number.isFinite(Number(entry.durationSeconds ?? entry.duration_seconds))
+          ? Number(entry.durationSeconds ?? entry.duration_seconds)
+          : 0,
+        Number.isFinite(Number(entry.inputCharacters ?? entry.input_characters))
+          ? Math.max(0, Math.floor(Number(entry.inputCharacters ?? entry.input_characters)))
+          : 0,
         serviceTier,
         entry.status || null,
         entry.success === false ? 0 : 1,

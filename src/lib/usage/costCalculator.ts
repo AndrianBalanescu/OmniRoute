@@ -170,6 +170,25 @@ export function computeCostFromPricing(
 
   if (cacheCreationTokens > 0) cost += cacheCreationTokens * (cacheCreationPrice / 1_000_000);
 
+  // Modal audio cost: per-second (STT) or per-character (TTS).
+  // When the token record carries duration_seconds or input_characters (from
+  // usage_history rows for /v1/audio/* endpoints), layer them on top of any
+  // token-based cost so STT/TTS requests are no longer $0.
+  const durationSeconds = toNumber(
+    tokens.durationSeconds ?? tokens.duration_seconds ?? tokens.seconds,
+    0
+  );
+  const inputCharacters = toNumber(
+    tokens.inputCharacters ?? tokens.input_characters ?? tokens.characters,
+    0
+  );
+  if (durationSeconds > 0 || inputCharacters > 0) {
+    cost += computeAudioCost(pricing as ModalPricing, {
+      seconds: durationSeconds,
+      characters: inputCharacters,
+    });
+  }
+
   return cost * getCodexFastCostMultiplier(options.provider, options.model, options.serviceTier);
 }
 

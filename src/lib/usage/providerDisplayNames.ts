@@ -56,6 +56,8 @@ export interface ByProviderRow {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  durationSeconds: number;
+  inputCharacters: number;
   avgLatencyMs: number;
   successRatePct: number | string;
   cost: number;
@@ -74,7 +76,14 @@ export async function buildByProviderRows(
     .filter((row) => {
       const raw = toStringValue(row.provider);
       const totalTokens = Number(row.totalTokens) || 0;
-      if (totalTokens === 0 && (raw.includes(",") || raw === "-" || raw.includes("/"))) {
+      const durationSeconds = Number(row.durationSeconds) || 0;
+      const inputCharacters = Number(row.inputCharacters) || 0;
+      if (
+        totalTokens === 0 &&
+        durationSeconds === 0 &&
+        inputCharacters === 0 &&
+        (raw.includes(",") || raw === "-" || raw.includes("/"))
+      ) {
         return false;
       }
       return true;
@@ -85,6 +94,8 @@ export async function buildByProviderRows(
       promptTokens: Number(row.promptTokens),
       completionTokens: Number(row.completionTokens),
       totalTokens: Number(row.totalTokens),
+      durationSeconds: Number(row.durationSeconds || 0),
+      inputCharacters: Number(row.inputCharacters || 0),
       avgLatencyMs: Math.round(Number(row.avgLatencyMs)),
       successRatePct:
         Number(row.requests) > 0

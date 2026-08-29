@@ -166,7 +166,20 @@ async function transcribeWithModel(
 
     // Persist to call_logs for real-time overview/request logs
     const resClone = response.clone();
-    const resData = await resClone.json().catch(() => ({}));
+    const resData = (await resClone.json().catch(() => ({}))) as Record<string, unknown>;
+    const responseSeconds =
+      typeof resData?.duration === "number" && resData.duration > 0
+        ? resData.duration
+        : Array.isArray(resData?.segments) && resData.segments.length > 0
+          ? (resData.segments[resData.segments.length - 1] as { end?: number })?.end
+          : null;
+    const finalSeconds =
+      seconds != null && seconds > 0
+        ? seconds
+        : typeof responseSeconds === "number" && responseSeconds > 0
+          ? responseSeconds
+          : null;
+
     saveCallLog({
       method: "POST",
       path: "/v1/audio/transcriptions",
@@ -188,7 +201,7 @@ async function transcribeWithModel(
         temperature:
           typeof formData.get("temperature") === "string" ? formData.get("temperature") : undefined,
         filename: file instanceof Blob ? (file as { name?: string }).name : undefined,
-        duration_seconds: seconds,
+        duration_seconds: finalSeconds,
       },
       responseBody: resData,
       apiKeyId: apiKeyInfo?.id || undefined,
@@ -201,6 +214,7 @@ async function transcribeWithModel(
       provider,
       model: `${provider}/${resolvedModel || modelStr}`,
       tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      durationSeconds: finalSeconds,
       status: "200",
       success: true,
       latencyMs: Date.now() - startTime,

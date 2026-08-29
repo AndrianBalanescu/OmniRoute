@@ -39,6 +39,19 @@ export function formatDuration(ms: number | null | undefined) {
 }
 
 /**
+ * Format audio seconds duration to a readable string (e.g. "45.2s", "12m 30s", "1.5h").
+ */
+export function formatAudioSeconds(sec: number | null | undefined): string {
+  if (!sec || sec <= 0) return "0s";
+  if (sec < 60) return `${sec < 10 ? sec.toFixed(1) : Math.round(sec)}s`;
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  if (m < 60) return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  const h = (sec / 3600).toFixed(1);
+  return `${h}h`;
+}
+
+/**
  * Mask a string by showing only start and end characters.
  * @param {string} value - Value to mask
  * @param {number} start - Number of characters to show at start (default: 2)
