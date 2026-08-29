@@ -4,20 +4,21 @@ import {
   clearRecoveredProviderState,
 } from "@/sse/services/auth";
 import { withInjectionGuard } from "@/middleware/promptInjectionGuard";
-import { parseRerankModel, getRerankProvider } from "@omniroute/open-sse/config/rerankRegistry.ts";
+import { parseRerankModel } from "@omniroute/open-sse/config/rerankRegistry.ts";
 import { errorResponse } from "@omniroute/open-sse/utils/error.ts";
 import { HTTP_STATUS } from "@omniroute/open-sse/config/constants.ts";
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
 import { v1RerankSchema } from "@/shared/validation/schemas";
 import { isValidationFailure, validateBody } from "@/shared/validation/helpers";
-import { getCachedProviderNodes } from "@/lib/localDb";
+import { getCachedProviderNodes } from "@/lib/db/readCache";
 import {
   isAllRateLimitedCredentials,
   rateLimitedProviderResponse,
 } from "@/app/api/v1/_shared/rateLimit";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { generateRequestId } from "@/shared/utils/requestId";
-import { saveCallLog } from "@/lib/usageDb";
+import { saveCallLog, saveRequestUsage } from "@/lib/usageDb";
+import { calculateModalCost } from "@/lib/usage/costCalculator";
 
 /**
  * Handle CORS preflight
@@ -55,7 +56,7 @@ function buildDynamicRerankProvider(node: any) {
  * Supports cloud providers (Cohere, Together, NVIDIA, Fireworks)
  * and local provider_nodes (oMLX, vLLM, etc.) via dynamic routing.
  */
-async function postHandler(request, context) {
+async function postHandler(request: Request, _context: any) {
   const startTime = Date.now();
   let rawBody;
   try {
@@ -105,7 +106,7 @@ async function postHandler(request, context) {
   }
 
   // Try cloud registry first
-  const { provider, model: modelId } = parseRerankModel(body.model);
+  const { provider } = parseRerankModel(body.model);
 
   if (provider) {
     // Cloud provider matched
@@ -153,8 +154,6 @@ async function postHandler(request, context) {
         return rateLimitedProviderResponse(prefix, credentials);
       }
 
-      const connectionId =
-        (credentials as { connectionId?: string } | null)?.connectionId || undefined;
       const token = credentials?.apiKey || credentials?.accessToken;
       try {
         let res = await fetch(localProvider.baseUrl, {
@@ -221,16 +220,22 @@ async function postHandler(request, context) {
         }
 
         const data = await res.json();
+        const searchUnits = Array.isArray(body.documents)
+          ? Math.ceil(body.documents.length / 100)
+          : 1;
+        const costUsd = await calculateModalCost("rerank", prefix, localModel, { searchUnits });
+        const promptTokens = Number(data?.usage?.prompt_tokens ?? data?.usage?.total_tokens) || 0;
+        const connId = (credentials as { connectionId?: string } | null)?.connectionId || undefined;
+
         saveCallLog({
           method: "POST",
           path: "/v1/rerank",
           status: 200,
           model: body.model,
           provider: prefix,
-          connectionId:
-            (credentials as { connectionId?: string } | null)?.connectionId || undefined,
+          connectionId: connId,
           duration,
-          tokens: { prompt_tokens: 0, completion_tokens: 0 },
+          tokens: { prompt_tokens: promptTokens, completion_tokens: 0 },
           requestBody: {
             model: body.model,
             query: body.query,
@@ -243,6 +248,40 @@ async function postHandler(request, context) {
           apiKeyName: policy.apiKeyInfo?.name || undefined,
         }).catch(() => {});
 
+        saveRequestUsage({
+          provider: prefix,
+          model: body.model,
+          tokens: { prompt_tokens: promptTokens, completion_tokens: 0 },
+          status: "200",
+          success: true,
+          latencyMs: duration,
+          apiKeyId: policy.apiKeyInfo?.id || undefined,
+          apiKeyName: policy.apiKeyInfo?.name || undefined,
+          connectionId: connId,
+          endpoint: "/v1/rerank",
+        }).catch((err) => {
+          console.error("Failed to save local rerank usage stats:", err.message);
+        });
+
+        if (policy.apiKeyInfo?.id && connId && prefix) {
+          try {
+            const { scheduleRecordConsumption } = await import("@/lib/quota/spendRecorder");
+            scheduleRecordConsumption({
+              apiKeyId: policy.apiKeyInfo.id,
+              connectionId: connId,
+              provider: prefix,
+              model: body.model,
+              cost: {
+                tokens: promptTokens,
+                requests: 1,
+                costUsd,
+              },
+            });
+          } catch {
+            // Non-critical
+          }
+        }
+
         if (credentials) {
           await clearRecoveredProviderState(credentials);
         }
@@ -253,7 +292,7 @@ async function postHandler(request, context) {
         attachOmniRouteMetaHeaders(headers, {
           provider: prefix,
           model: localModel,
-          costUsd: 0,
+          costUsd,
           latencyMs: duration,
           requestId: generateRequestId(),
         });

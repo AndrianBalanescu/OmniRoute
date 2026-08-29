@@ -8,6 +8,7 @@
  */
 
 import { isFlatRateProvider } from "./flatRateProviders";
+import { toNumber } from "@/shared/utils/numeric";
 
 /**
  * Normalize model name — strip provider path prefixes.
@@ -63,15 +64,6 @@ function extractExactCostUsd(
     return ticks / USD_TICKS_PER_DOLLAR;
   }
   return null;
-}
-
-function toNumber(value: unknown, fallback = 0): number {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-  return fallback;
 }
 
 function normalizeServiceTier(value: unknown): string {
@@ -186,6 +178,17 @@ export function computeCostFromPricing(
     cost += computeAudioCost(pricing as ModalPricing, {
       seconds: durationSeconds,
       characters: inputCharacters,
+    });
+  }
+
+  // Modal rerank cost: per search unit (search_unit_cost) or per query (input_cost_per_query).
+  if (pricing.search_unit_cost !== undefined || pricing.input_cost_per_query !== undefined) {
+    const searchUnits = toNumber(
+      tokens.searchUnits ?? tokens.search_units ?? tokens.requests ?? 1,
+      1
+    );
+    cost += computeRerankCost(pricing as ModalPricing, {
+      searchUnits,
     });
   }
 

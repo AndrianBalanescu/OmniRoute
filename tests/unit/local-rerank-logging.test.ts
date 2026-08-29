@@ -104,10 +104,13 @@ test("successfully logs local rerank calls and attaches metadata headers", async
   const json = (await res.json()) as RerankSuccessResponse;
   assert.equal(json.results.length, 2);
 
-  await new Promise((r) => setTimeout(r, 50));
-
-  const logs = (await getCallLogs({ limit: 10 })) as unknown as CallLogRow[];
-  const logEntry = logs.find((l) => l.model === "vram/BAAI/bge-reranker-v2-m3");
+  let logEntry: CallLogRow | undefined;
+  for (let i = 0; i < 20; i++) {
+    await new Promise((r) => setTimeout(r, 50));
+    const logs = (await getCallLogs({ limit: 10 })) as unknown as CallLogRow[];
+    logEntry = logs.find((l) => l.model === "vram/BAAI/bge-reranker-v2-m3");
+    if (logEntry) break;
+  }
   assert.ok(logEntry, "Expected call log entry for local rerank");
   assert.equal(logEntry.provider, "vram");
   assert.equal(logEntry.status, 200);
@@ -124,6 +127,16 @@ test("successfully logs local rerank calls and attaches metadata headers", async
       { index: 1, relevance_score: 0.2 },
     ],
   });
+
+  const db = core.getDbInstance();
+  const usageEntries = db
+    .prepare("SELECT * FROM usage_history WHERE provider = ?")
+    .all("vram") as Record<string, unknown>[];
+  assert.equal(usageEntries.length >= 1, true, "Expected usage_history entry for local rerank");
+  const usageEntry = usageEntries.find((u) => u.model === "vram/BAAI/bge-reranker-v2-m3");
+  assert.ok(usageEntry, "Expected usage entry for vram reranker model");
+  assert.equal(usageEntry.status, "200");
+  assert.equal(usageEntry.endpoint, "/v1/rerank");
 });
 
 test("falls back from /v1/rerank to /rerank when local provider returns 404", async () => {

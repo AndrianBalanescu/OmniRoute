@@ -11,7 +11,7 @@ import { errorResponse } from "../utils/error.ts";
 import { attachOmniRouteMetaHeaders } from "@/domain/omnirouteResponseMeta";
 import { calculateModalCost } from "@/lib/usage/costCalculator";
 import { generateRequestId } from "@/shared/utils/requestId";
-import { saveCallLog } from "@/lib/usageDb";
+import { saveCallLog, saveRequestUsage } from "@/lib/usageDb";
 import { resolveProxyForConnection } from "@/lib/db/settings";
 import { runWithProxyContext } from "../utils/proxyFetch.ts";
 import * as log from "@/sse/utils/logger";
@@ -295,8 +295,11 @@ export async function handleRerank({
       return_documents,
     });
 
-    const searchUnits = Number(result?.meta?.billed_units?.search_units) || 0;
+    const searchUnits =
+      Number(result?.meta?.billed_units?.search_units) ||
+      (Array.isArray(documents) ? Math.ceil(documents.length / 100) : 1);
     const costUsd = await calculateModalCost("rerank", providerId, modelId, { searchUnits });
+    const promptTokens = Number(data?.usage?.prompt_tokens ?? data?.usage?.total_tokens) || 0;
 
     saveCallLog({
       method: "POST",
@@ -306,12 +309,46 @@ export async function handleRerank({
       provider: providerId,
       connectionId: connectionId || undefined,
       duration: Date.now() - startTime,
-      tokens: { prompt_tokens: 0, completion_tokens: 0 },
+      tokens: { prompt_tokens: promptTokens, completion_tokens: 0 },
       requestBody,
       responseBody: result,
       apiKeyId: apiKeyId || undefined,
       apiKeyName: apiKeyName || undefined,
     }).catch(() => {});
+
+    saveRequestUsage({
+      provider: providerId,
+      model: `${providerId}/${modelId}`,
+      tokens: { prompt_tokens: promptTokens, completion_tokens: 0 },
+      status: "200",
+      success: true,
+      latencyMs: Date.now() - startTime,
+      apiKeyId: apiKeyId || undefined,
+      apiKeyName: apiKeyName || undefined,
+      connectionId: connectionId || undefined,
+      endpoint: "/v1/rerank",
+    }).catch((err) => {
+      console.error("Failed to save rerank usage stats:", err.message);
+    });
+
+    if (apiKeyId && connectionId && providerId) {
+      try {
+        const { scheduleRecordConsumption } = await import("@/lib/quota/spendRecorder");
+        scheduleRecordConsumption({
+          apiKeyId,
+          connectionId,
+          provider: providerId,
+          model: `${providerId}/${modelId}`,
+          cost: {
+            tokens: promptTokens,
+            requests: 1,
+            costUsd,
+          },
+        });
+      } catch {
+        // Non-critical
+      }
+    }
 
     const headers = new Headers({ ...CORS_HEADERS, "Content-Type": "application/json" });
     attachOmniRouteMetaHeaders(headers, {

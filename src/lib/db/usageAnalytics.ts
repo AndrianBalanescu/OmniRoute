@@ -120,6 +120,7 @@ export interface DailyCostRow {
   provider: string;
   model: string;
   serviceTier: string;
+  requests?: number;
   promptTokens: number;
   completionTokens: number;
   cacheReadTokens: number;
@@ -142,6 +143,7 @@ export function getDailyCostRows(unifiedSource: string, params: AnalyticsParams)
         LOWER(provider) as provider,
         LOWER(model) as model,
         COALESCE(NULLIF(service_tier, ''), 'standard') as serviceTier,
+        COALESCE(SUM(requests), 0) as requests,
         COALESCE(SUM(tokens_input), 0) as promptTokens,
         COALESCE(SUM(tokens_output), 0) as completionTokens,
         COALESCE(SUM(tokens_cache_read), 0) as cacheReadTokens,
@@ -247,6 +249,7 @@ export interface ProviderCostRow {
   provider: string;
   model: string;
   serviceTier: string;
+  requests?: number;
   promptTokens: number;
   completionTokens: number;
   cacheReadTokens: number;
@@ -271,6 +274,7 @@ export function getProviderCostRows(
         LOWER(provider) as provider,
         LOWER(model) as model,
         COALESCE(NULLIF(service_tier, ''), 'standard') as serviceTier,
+        COALESCE(SUM(requests), 0) as requests,
         COALESCE(SUM(tokens_input), 0) as promptTokens,
         COALESCE(SUM(tokens_output), 0) as completionTokens,
         COALESCE(SUM(tokens_cache_read), 0) as cacheReadTokens,
@@ -335,6 +339,7 @@ export interface AccountCostRow {
   provider: string;
   model: string;
   serviceTier: string;
+  requests?: number;
   promptTokens: number;
   completionTokens: number;
   cacheReadTokens: number;
@@ -365,6 +370,7 @@ export function getAccountCostRows(whereClause: string, params: AnalyticsParams)
           usage_history.provider,
           usage_history.model,
           usage_history.service_tier,
+          1 as requests,
           usage_history.tokens_input,
           usage_history.tokens_output,
           usage_history.tokens_cache_read,
@@ -380,6 +386,7 @@ export function getAccountCostRows(whereClause: string, params: AnalyticsParams)
         LOWER(account_events.provider) as provider,
         LOWER(account_events.model) as model,
         COALESCE(NULLIF(account_events.service_tier, ''), 'standard') as serviceTier,
+        COALESCE(SUM(account_events.requests), 0) as requests,
         COALESCE(SUM(account_events.tokens_input), 0) as promptTokens,
         COALESCE(SUM(account_events.tokens_output), 0) as completionTokens,
         COALESCE(SUM(account_events.tokens_cache_read), 0) as cacheReadTokens,

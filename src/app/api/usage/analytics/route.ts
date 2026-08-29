@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { getProviderById } from "@/shared/constants/providers";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getApiKeys } from "@/lib/db/apiKeys";
 import { getUserDatabaseSettings } from "@/lib/db/databaseSettings";
@@ -267,6 +266,7 @@ function computeUsageRowCost(
       reasoning: toNumber(row.reasoningTokens),
       durationSeconds: toNumber(row.durationSeconds ?? row.duration_seconds),
       inputCharacters: toNumber(row.inputCharacters ?? row.input_characters),
+      requests: toNumber(row.requests ?? 1),
     },
     {
       provider,
