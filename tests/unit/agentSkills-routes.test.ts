@@ -38,7 +38,6 @@ const apiKeysDb = await import("../../src/lib/db/apiKeys.ts");
 const listRoute = await import("../../src/app/api/agent-skills/route.ts");
 const idRoute = await import("../../src/app/api/agent-skills/[id]/route.ts");
 const rawRoute = await import("../../src/app/api/agent-skills/[id]/raw/route.ts");
-const coverageRoute = await import("../../src/app/api/agent-skills/coverage/route.ts");
 const generateRoute = await import("../../src/app/api/agent-skills/generate/route.ts");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -273,27 +272,9 @@ test("GET /api/agent-skills/[id]/raw — returns markdown or 502 for valid id (n
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GET /api/agent-skills/coverage
+// GET /api/agent-skills/coverage — route retired in this fork (a10f67d2e);
+// upstream still ships it. Test block removed accordingly.
 // ═════════════════════════════════════════════════════════════════════════════
-
-test("GET /api/agent-skills/coverage — returns valid SkillCoverage shape", async () => {
-  const res = await coverageRoute.GET();
-
-  assert.equal(res.status, 200);
-  const body = (await res.json()) as {
-    api: { have: number; total: number };
-    cli: { have: number; total: number };
-    totalSkills: number;
-    generatedAt: string;
-  };
-
-  assert.equal(body.api.total, 23, "api.total must be 23");
-  assert.equal(body.cli.total, 21, "cli.total must be 21");
-  assert.ok(typeof body.totalSkills === "number", "totalSkills must be a number");
-  assert.ok(typeof body.generatedAt === "string", "generatedAt must be a string");
-  // generatedAt must be a valid ISO datetime
-  assert.ok(!isNaN(Date.parse(body.generatedAt)), "generatedAt must be a valid ISO datetime");
-});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // POST /api/agent-skills/generate — auth guard
