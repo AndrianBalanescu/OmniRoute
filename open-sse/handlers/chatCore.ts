@@ -131,7 +131,7 @@ import { resolveChatCoreRequestFormat } from "./chatCore/requestFormat.ts";
 import { resolveChatCoreTargetFormat } from "./chatCore/targetFormat.ts";
 import { resolveOmniGlyphTransport } from "../services/compression/imageTransportPolicy.ts";
 import { stripStore, usesClaudeBridge } from "./chatCore/agentRouterProtocol.ts";
-import { defaultClaudeToolType } from "./chatCore/claudeToolDefaults.ts";
+import { normalizeClaudeToolsForDispatch } from "./chatCore/claudeToolDefaults.ts";
 import { injectSystemPrompt, injectCustomSystemPrompt } from "../services/systemPrompt.ts";
 import { translateRequest, needsTranslation } from "../translator/index.ts";
 import { FORMATS } from "../translator/formats.ts";
@@ -399,8 +399,12 @@ import {
   acquireMany as acquireConcurrencyGates,
   markBlocked as markAccountSemaphoreBlocked,
 } from "../services/accountSemaphore.ts";
-import { lockModel, lockModelIfPerModelQuota } from "../services/accountFallback.ts";
-import { lockExactModel } from "../services/accountFallback.ts";
+import {
+  lockModel,
+  lockModelIfPerModelQuota,
+  recordCoreOwnedAntigravityQuotaState,
+  shouldDeferAntigravityQuotaStateToCaller,
+} from "../services/accountFallback.ts";
 import {
   generateSignature,
   getCachedResponse,
@@ -921,6 +925,19 @@ export async function handleChatCore({
     });
   if (webSearchFallbackPlan.enabled) {
     body = bodyWithWebSearchFallback as typeof body;
+    // Server-side web-search execution cannot be injected into an arbitrary
+    // client SSE stream (streaming interception is not implemented — #9725), so
+    // a stream:true OpenAI Responses request whose web_search tool was converted
+    // to the fallback is executed non-streaming: the assembled response then
+    // carries the executed results (function_call_output + web_search_call) and
+    // JSON-tolerating Responses clients (pi-web-access) consume it directly.
+    if (
+      sourceFormat === FORMATS.OPENAI_RESPONSES &&
+      (body as Record<string, unknown>).stream === true
+    ) {
+      (body as Record<string, unknown>).stream = false;
+      log?.info?.("TOOLS", `web_search fallback forced non-streaming response for ${provider}`);
+    }
     log?.info?.(
       "TOOLS",
       `Converted ${webSearchFallbackPlan.convertedToolCount} web_search tool(s) to OmniRoute fallback for ${provider}`
@@ -1423,7 +1440,7 @@ export async function handleChatCore({
       };
       if ((isCombo && comboName) || routingComboId) {
         try {
-          const { getComboByName } = await import("../../src/lib/localDb");
+          const { getComboByName } = await import("@/lib/db/combos");
           let comboConfig = await getComboByName(comboName);
           if (!comboConfig && comboName?.startsWith("combo/")) {
             comboConfig = await getComboByName(comboName.substring(6));
@@ -1914,7 +1931,7 @@ export async function handleChatCore({
     if (isCombo && comboName) {
       log?.info?.("CONTEXT", `Attempting to resolve combo limits for comboName=${comboName}`);
       try {
-        const { getComboByName } = await import("../../src/lib/localDb");
+        const { getComboByName } = await import("@/lib/db/combos");
         const { resolveComboTargets } = await import("../services/combo.ts");
         let comboConfig = await getComboByName(comboName);
         if (!comboConfig && comboName.startsWith("combo/")) {
@@ -1943,10 +1960,22 @@ export async function handleChatCore({
         // target's window; min(...allTargets) is only a defensive fallback —
         // the old unconditional min compressed a 1M-target request at the
         // smallest sibling's window ("agent keeps forgetting things").
+        // An explicit `context_length` on the combo record (Agent Features →
+        // Context length) is an operator declaration and outranks the inferred
+        // per-target window — see resolveComboContextLimit().
+        const rawComboContextLength = (comboConfig as { context_length?: unknown } | null)
+          ?.context_length;
+        const comboContextLength =
+          typeof rawComboContextLength === "number" &&
+          Number.isFinite(rawComboContextLength) &&
+          rawComboContextLength > 0
+            ? rawComboContextLength
+            : null;
         const resolved = resolveComboContextLimit({
           provider,
           model: effectiveModel,
           comboTargetLimits,
+          comboContextLength,
         });
         contextLimit = resolved.limit;
         log?.info?.(
@@ -2586,9 +2615,13 @@ export async function handleChatCore({
   // definitions that omit the required `type` discriminator with HTTP 400. Default
   // a missing `type` to "custom" before dispatch, mirroring Anthropic's own
   // inference, so legacy Claude-format tool payloads survive strict gateways (#2195).
+  // AgentRouter is the opposite quirk: its Rust deserializer only accepts versioned
+  // tool types and 400s on `type: "custom"` — there the discriminator is stripped
+  // instead (see claudeToolDefaults.ts).
   if (targetFormat === FORMATS.CLAUDE && Array.isArray(translatedBody.tools)) {
-    translatedBody.tools = defaultClaudeToolType(
-      translatedBody.tools
+    translatedBody.tools = normalizeClaudeToolsForDispatch(
+      translatedBody.tools,
+      provider
     ) as typeof translatedBody.tools;
   }
 
@@ -2804,7 +2837,12 @@ export async function handleChatCore({
     log?.debug?.("PARAMS", `Renamed max_completion_tokens to max_tokens for ${model}`);
   }
 
-  stripStore(translatedBody, provider, targetFormat);
+  stripStore(
+    translatedBody,
+    provider,
+    targetFormat,
+    credentials?.providerSpecificData as Record<string, unknown> | null | undefined
+  );
 
   // Chat clients may send stream_options.include_usage, but OpenAI Responses
   // upstreams (including Azure AI Foundry /responses) reject stream_options.
@@ -4280,19 +4318,57 @@ export async function handleChatCore({
               }
 
               // Providers with per-model quotas — lock the model only, not the connection
-              const quotaCooldownMs = kimiRateLimitResetAt
+              let quotaCooldownMs = kimiRateLimitResetAt
                 ? Math.max(new Date(kimiRateLimitResetAt).getTime() - Date.now(), 0)
                 : retryAfterMs || COOLDOWN_MS.rateLimit;
+              const deferAntigravityQuotaStateToCaller = shouldDeferAntigravityQuotaStateToCaller(
+                provider,
+                typeof onStreamFailure === "function"
+              );
+              const isAntigravityQuotaFamily = shouldDeferAntigravityQuotaStateToCaller(
+                provider,
+                true
+              );
+              let coreOwnedAntigravityLockout: {
+                cooldownMs: number;
+                failureCount: number;
+              } | null = null;
+              if (isAntigravityQuotaFamily && !deferAntigravityQuotaStateToCaller) {
+                const quotaErrorText =
+                  typeof upstreamErrorBody === "string"
+                    ? upstreamErrorBody
+                    : upstreamErrorBody == null
+                      ? message
+                      : JSON.stringify(upstreamErrorBody);
+                coreOwnedAntigravityLockout = await recordCoreOwnedAntigravityQuotaState({
+                  provider,
+                  connectionId: errorConnectionId,
+                  model,
+                  status: statusCode,
+                  errorText: quotaErrorText,
+                  headers: providerResponse.headers,
+                });
+                quotaCooldownMs = coreOwnedAntigravityLockout.cooldownMs;
+              }
               const accountSemaphoreKey = resolveAccountSemaphoreKey({
                 provider,
                 model: currentModel,
                 connectionId: errorConnectionId,
                 credentials,
               });
-              if (accountSemaphoreKey) {
+              if (accountSemaphoreKey && !deferAntigravityQuotaStateToCaller) {
                 markAccountSemaphoreBlocked(accountSemaphoreKey, quotaCooldownMs);
               }
-              if (kimiRateLimitResetAt) {
+              if (deferAntigravityQuotaStateToCaller) {
+                // Defer both model and account-semaphore cooldowns to
+                // markAccountUnavailable, where header/body provenance and the
+                // configured maxCooldownMs are available. Direct consumers such
+                // as Responses pass no owner callback and retain core ownership.
+              } else if (coreOwnedAntigravityLockout) {
+                console.warn(
+                  `[provider] Node ${errorConnectionId} Antigravity model quota exhausted (${statusCode}) for ${model} - ${Math.ceil(coreOwnedAntigravityLockout.cooldownMs / 1000)}s (failureCount=${coreOwnedAntigravityLockout.failureCount}, owner=core)`
+                );
+              } else if (kimiRateLimitResetAt) {
                 await updateProviderConnection(errorConnectionId, {
                   testStatus: "unavailable",
                   rateLimitedUntil: kimiRateLimitResetAt,
@@ -4305,8 +4381,7 @@ export async function handleChatCore({
                   `[provider] Node ${errorConnectionId} Kimi request window exhausted (${statusCode}) — retrying after ${kimiRateLimitResetAt}`
                 );
               } else if (isModelScope() && errorConnectionId) {
-                const lockFn = provider === "antigravity" ? lockExactModel : lockModel;
-                lockFn(provider, errorConnectionId, model, "quota_exhausted", quotaCooldownMs);
+                lockModel(provider, errorConnectionId, model, "quota_exhausted", quotaCooldownMs);
                 console.warn(
                   `[provider] Node ${errorConnectionId} ModelScope model quota exhausted (${statusCode}) for ${model} - ${Math.ceil(quotaCooldownMs / 1000)}s (connection stays active)`
                 );
@@ -5705,6 +5780,8 @@ export async function handleChatCore({
     });
 
     // Plugin onStreamComplete hook — fire-and-forget, fail-open (#9571)
+    // Pass traceId as requestId so plugins can correlate the stream-completion event
+    // with the originating request (the same id used for onRequest/onResponse). (#11825)
     runPluginOnStreamCompleteHook({
       status: normalizedStreamStatus,
       usage: streamUsage as Record<string, unknown> | undefined,
@@ -5713,6 +5790,7 @@ export async function handleChatCore({
       provider,
       errorCode: streamErrorCode,
       startTime,
+      requestId: traceId,
     });
   };
 

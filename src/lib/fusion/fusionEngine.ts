@@ -7,7 +7,6 @@
 import {
   getFusionStrategyByName,
   getFusionStrategies,
-  type FusionStrategy,
   type FusionEngineItem,
 } from "../db/fusionStrategies";
 import * as log from "@/sse/utils/logger";
