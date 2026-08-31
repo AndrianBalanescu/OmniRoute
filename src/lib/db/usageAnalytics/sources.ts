@@ -154,7 +154,7 @@ export function buildUnifiedSource(opts: BuildUnifiedSourceOptions): UnifiedSour
  * than the main analytics query — no connection_id / api_key columns needed).
  */
 export function buildPresetUnifiedSource(opts: BuildUnifiedSourceOptions): UnifiedSourceResult {
-  const { sinceIso, untilIso, rawCutoffDate, apiKeyWhere, apiKeyParams } = opts;
+  const { sinceIso, rawCutoffDate, apiKeyWhere, apiKeyParams } = opts;
   const sinceDate = sinceIso?.split("T")[0] ?? null;
 
   const needsAggregated = (!sinceDate || sinceDate < rawCutoffDate) && !apiKeyWhere;
