@@ -331,10 +331,12 @@ function runCompression(
       ...options,
       config: { ...options.config, memoizeCompressionResults: false },
     });
-    // memoStore returns the stored clone — avoids a redundant second multi-MB deep
-    // clone of the body that the old `memoStore(key, result); memoLookup(key)!` idiom
-    // allocated on large agent payloads (#7847 OOM mitigation).
-    return memoStore(key, result);
+    // memoStore clones internally, so the cache entry stays isolated from the caller's
+    // live object. Return the caller's own `result` (upstream #11727 semantics): handing
+    // back the stored clone would let the caller's later mutations corrupt the cache —
+    // the exact bug the result-memo mutation-isolation test guards.
+    memoStore(key, result);
+    return result;
   }
   if (mode === "rtk") {
     return applyRtkCompression(body, {
@@ -544,9 +546,10 @@ async function runCompressionAsync(
       ...options,
       config: { ...options.config, memoizeCompressionResults: false },
     });
-    // memoStore returns the stored clone (avoids a redundant second deep clone of the
-    // body — #7847 OOM mitigation).
-    return memoStore(key, result);
+    // Same contract as the sync path: store the internal clone; return the caller's own
+    // object so later caller mutations cannot corrupt the cache (#11727 semantics).
+    memoStore(key, result);
+    return result;
   }
   // Single-mode omniglyph (async-only) — resolution lives in engines/omniglyphSingleMode.ts.
   if (mode === "omniglyph") return applyOmniglyphSingleMode(body, options);

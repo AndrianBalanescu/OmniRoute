@@ -203,6 +203,7 @@ export function getMemoStats(): {
 /** For tests only — clears the in-process memo store and resets counters. */
 export function clearMemoStore(): void {
   memoMap.clear();
+  lookupCountForTests = 0;
   memoHits = 0;
   memoMisses = 0;
   for (let i = 0; i < RING_CAP; i++) ring[i] = undefined;
