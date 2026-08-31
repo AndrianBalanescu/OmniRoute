@@ -7,6 +7,9 @@ import { getHttpStatusStyle } from "@/shared/constants/colors";
 import { copyToClipboard } from "@/shared/utils/clipboard";
 import RequestLoggerDetail from "@/shared/components/RequestLoggerDetail";
 
+export type { TimelineLog } from "@/shared/components/RequestTimeline.utils";
+export { allocateLanes } from "@/shared/components/RequestTimeline.utils";
+
 interface TimelineLog {
   id: string;
   timestamp: string;
