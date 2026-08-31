@@ -77,6 +77,28 @@ npm run check
 | `OMNIROUTE_DEPLOY_HEAVY_CONTAINERS`  | `ai-embeddings ai-whisper voiceink-tts-*` | containers paused during build         |
 | `OMNIROUTE_DEPLOY_KEEP_HEAVY`        | `0`                                       | set `1` to skip pausing heavy services |
 
+### Deploy debugging lessons (2026-08-31) — read before debugging a failed deploy
+
+- **Never trust the first build error's surface.** Two failures blamed on
+  "Turbopack cache corruption" (`there must be a path to a root`) masked the real
+  blocker. Running the webpack path via `safe-deploy.sh` surfaced it: a duplicate
+  `getModelIsHidden` import in `src/app/api/providers/[id]/models/route.ts`
+  (fixed in `4a877905d`). If `next build` fails twice with cache-sounding errors,
+  run the webpack deploy path once before blaming the cache.
+- **Hot-patch ≠ deploy.** A fix applied inside the running container (crash-guard
+  patch, 2026-08-31) dies silently on the next `--force-recreate`: recreate always
+  uses the IMAGE, never the container's filesystem. After any hot-patch, landing a
+  proper image via `safe-deploy.sh` is the immediate next task.
+- **`safe-deploy.sh` is failure-safe**: a failed build leaves PROD untouched (heavy
+  containers are restored, exit happens before `up -d --force-recreate`) and every
+  run retains rollback tag `omniroute:homelab-pre-deploy-<ts>`. So after fixing the
+  source, just re-run it; do not hand-roll `docker compose build`.
+- **Fast loop when the deploy build fails:**
+  1. Read the LAST `Failed to compile` / `Module parse failed` block in the build log, not the first error line.
+  2. `npx eslint "<the named file>"` locally: duplicate-identifier errors are build blockers; `no-unused-vars` may be pre-existing noise (frozen in `eslint-suppressions.json` upstream, but still hard errors in the webpack build only if they are parse-level).
+  3. Fix surgically → commit → `git push fork personal/stable` → on homelab `git pull fork personal/stable` → re-run `safe-deploy.sh`.
+  4. Post-deploy verification: `docker ps` shows new image healthy, `docker logs omniroute` free of the old TypeError, `curl -s localhost:20128/api/health/ping` OK.
+
 ## Dev Flow
 
 ```bash
