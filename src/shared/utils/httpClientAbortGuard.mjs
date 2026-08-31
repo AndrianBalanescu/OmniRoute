@@ -40,8 +40,22 @@
 export function isClientAbortError(err) {
   if (!err || typeof err !== "object") return false;
   const e = /** @type {NodeJS.ErrnoException} */ (err);
+  const msg = typeof e.message === "string" ? e.message : "";
   // Node emits `Error: aborted` (no code) from http.Server#abortIncoming.
-  if (e.message === "aborted" || e.message === "Aborted") return true;
+  if (msg === "aborted" || msg === "Aborted") return true;
+  // Client-disconnect aborts fanned out through the SSE pipeline carry a
+  // recognizable client marker (open-sse/utils/streamHandler.ts
+  // getClientAbortReason stamps `request_signal_aborted`; per-request handlers
+  // use `client_*` reasons). A bare internal AbortError (local timeout via
+  // throwIfAborted, message "This operation was aborted") has none of these
+  // and must still crash loudly.
+  if (e.name === "AbortError") {
+    if (e.reason === "request_signal_aborted") return true;
+    if (typeof e.reason === "string" && e.reason.startsWith("client_")) return true;
+    if (msg.includes("request_signal_aborted")) return true;
+    return false;
+  }
+  if (msg.includes("request_signal_aborted")) return true;
   switch (e.code) {
     case "ERR_STREAM_PREMATURE_CLOSE":
     case "ECONNRESET":

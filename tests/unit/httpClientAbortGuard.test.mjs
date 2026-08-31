@@ -101,7 +101,10 @@ test("shouldSwallowUncaught absorbs the real 'aborted' uncaughtException signatu
   assert.equal(shouldSwallowUncaught(abortErr, "uncaughtException"), true);
   assert.equal(shouldSwallowUncaught(abortErr, undefined), true);
   assert.equal(
-    shouldSwallowUncaught(Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" }), "uncaughtException"),
+    shouldSwallowUncaught(
+      Object.assign(new Error("ECONNRESET"), { code: "ECONNRESET" }),
+      "uncaughtException"
+    ),
     true
   );
 });
@@ -111,6 +114,28 @@ test("shouldSwallowUncaught preserves crash semantics for genuine errors", () =>
   assert.equal(shouldSwallowUncaught(realErr, "uncaughtException"), false);
   const realErr2 = Object.assign(new Error("disk full"), { code: "ENOSPC" });
   assert.equal(shouldSwallowUncaught(realErr2, "uncaughtException"), false);
+});
+
+test("isClientAbortError classifies client-disconnect AbortError with request_signal marker", () => {
+  // The SSE pipeline (open-sse/utils/streamHandler.ts getClientAbortReason)
+  // stamps `request_signal_aborted` onto the abort fan-out when the caller
+  // disconnects. These surfaced as fatal `TypeError`-adjacent restarts when a
+  // buggy guard version re-threw them; cover both shapes seen in prod.
+  const stampedReason = Object.assign(new Error("The operation was aborted"), {
+    name: "AbortError",
+    reason: "request_signal_aborted",
+  });
+  assert.equal(isClientAbortError(stampedReason), true);
+
+  const stampedMessage = new Error("disconnect: request_signal_aborted");
+  assert.equal(isClientAbortError(stampedMessage), true);
+
+  // A bare internal abort (local timeout via throwIfAborted, no client
+  // marker) must still be treated as a genuine error.
+  const localTimeout = Object.assign(new Error("The operation was aborted"), {
+    name: "AbortError",
+  });
+  assert.equal(isClientAbortError(localTimeout), false);
 });
 
 test("installProcessCrashGuard does not throw on import and is idempotent", () => {
