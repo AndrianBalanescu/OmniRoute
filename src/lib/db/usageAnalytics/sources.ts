@@ -154,7 +154,7 @@ export function buildUnifiedSource(opts: BuildUnifiedSourceOptions): UnifiedSour
  * than the main analytics query — no connection_id / api_key columns needed).
  */
 export function buildPresetUnifiedSource(opts: BuildUnifiedSourceOptions): UnifiedSourceResult {
-  const { sinceIso, untilIso, rawCutoffDate, apiKeyWhere, apiKeyParams } = opts;
+  const { sinceIso, rawCutoffDate, apiKeyWhere, apiKeyParams } = opts;
   const sinceDate = sinceIso?.split("T")[0] ?? null;
 
   const needsAggregated = (!sinceDate || sinceDate < rawCutoffDate) && !apiKeyWhere;
@@ -190,7 +190,8 @@ export function buildPresetUnifiedSource(opts: BuildUnifiedSourceOptions): Unifi
     ? `(
         SELECT timestamp, provider, model, service_tier,
           tokens_input, tokens_output,
-          tokens_cache_read, tokens_cache_creation, tokens_reasoning
+          tokens_cache_read, tokens_cache_creation, tokens_reasoning,
+          duration_seconds, input_characters
         FROM usage_history
         ${presetRawWhere}
         UNION ALL
@@ -202,13 +203,16 @@ export function buildPresetUnifiedSource(opts: BuildUnifiedSourceOptions): Unifi
           total_output_tokens as tokens_output,
           0 as tokens_cache_read,
           0 as tokens_cache_creation,
-          0 as tokens_reasoning
+          0 as tokens_reasoning,
+          0 as duration_seconds,
+          0 as input_characters
         FROM daily_usage_summary
         ${presetAggWhere}
       )`
     : `(SELECT timestamp, provider, model, service_tier,
           tokens_input, tokens_output,
-          tokens_cache_read, tokens_cache_creation, tokens_reasoning
+          tokens_cache_read, tokens_cache_creation, tokens_reasoning,
+          duration_seconds, input_characters
         FROM usage_history
         ${presetRawWhere}
       )`;

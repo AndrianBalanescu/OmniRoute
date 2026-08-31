@@ -6,6 +6,10 @@ import { useTranslations } from "next-intl";
 import { getHttpStatusStyle } from "@/shared/constants/colors";
 import { copyToClipboard } from "@/shared/utils/clipboard";
 import RequestLoggerDetail from "@/shared/components/RequestLoggerDetail";
+import { allocateLanes } from "@/shared/components/RequestTimeline.utils";
+
+export type { TimelineLog } from "@/shared/components/RequestTimeline.utils";
+export { allocateLanes } from "@/shared/components/RequestTimeline.utils";
 
 interface TimelineLog {
   id: string;
@@ -20,11 +24,6 @@ interface TimelineLog {
   completed?: boolean;
   error?: string | null;
   path?: string | null;
-}
-
-interface Lane {
-  startMs: number;
-  endMs: number;
 }
 
 type ViewMode = "follow" | "live" | "pan";
@@ -73,37 +72,6 @@ function formatTimeAxis(ms: number): string {
 function getStatusColor(status: number, active: boolean | undefined): string {
   if (active) return "#6366F1";
   return getHttpStatusStyle(status).bg;
-}
-
-function allocateLanes(items: TimelineLog[], nowMs: number): Map<string, number> {
-  const lanes: Lane[] = [];
-  const laneMap = new Map<string, number>();
-
-  const sorted = [...items].sort((a, b) => {
-    const aStart = new Date(a.timestamp).getTime();
-    const bStart = new Date(b.timestamp).getTime();
-    return aStart - bStart;
-  });
-
-  for (const item of sorted) {
-    const { startMs, endMs } = computeBarRange(item, nowMs);
-
-    let placed = false;
-    for (let i = 0; i < lanes.length; i++) {
-      if (lanes[i].endMs < startMs) {
-        lanes[i] = { startMs, endMs };
-        laneMap.set(item.id, i);
-        placed = true;
-        break;
-      }
-    }
-    if (!placed) {
-      laneMap.set(item.id, lanes.length);
-      lanes.push({ startMs, endMs });
-    }
-  }
-
-  return laneMap;
 }
 
 function truncateModel(model: string | null): string {
