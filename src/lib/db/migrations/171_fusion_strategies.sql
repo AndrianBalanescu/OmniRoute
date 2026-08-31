@@ -1,4 +1,4 @@
--- Migration 134: Add fusion_strategies table for multi-engine AI search and reasoning synthesis
+-- Migration 171 (renamed from colliding 165; table creation is idempotent): Add fusion_strategies table for multi-engine AI search and reasoning synthesis
 CREATE TABLE IF NOT EXISTS fusion_strategies (
   id TEXT PRIMARY KEY,
   name TEXT UNIQUE NOT NULL,

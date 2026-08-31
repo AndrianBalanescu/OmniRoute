@@ -513,9 +513,8 @@ function isSchemaAlreadyApplied(
       if (migration.name !== "rename_freepik_to_magnific") return false;
       if (!hasTable(db, "provider_connections")) return false;
       return (
-        db
-          .prepare("SELECT 1 FROM provider_connections WHERE provider = 'freepik' LIMIT 1")
-          .get() == null
+        db.prepare("SELECT 1 FROM provider_connections WHERE provider = 'freepik' LIMIT 1").get() ==
+        null
       );
     case "165":
       // Retroactive guard for fusion_strategies renumber (143 → 154 → 163 → 165
@@ -524,6 +523,23 @@ function isSchemaAlreadyApplied(
       // which would fail on the UNIQUE seed rows.
       if (migration.name !== "fusion_strategies") return false;
       return hasTable(db, "fusion_strategies");
+    case "171":
+      // Retroactive guard for the 165 → 171 renumber (fork fusion_strategies
+      // collided with upstream 165_retire_felo_web on the release/v3.8.51 sync).
+      // A DB that already created the table — under 134/154/163/165/171 — must
+      // not re-run the CREATE/INSERT (UNIQUE seed rows would throw).
+      if (migration.name !== "fusion_strategies") return false;
+      return hasTable(db, "fusion_strategies");
+    case "172":
+      // Retroactive guard for the 166 → 172 renumber (fork audio-usage tracking
+      // collided with upstream 166_retire_gpl_derived_providers). A DB that
+      // already ran it under 166 has the columns; a bare ALTER TABLE ADD COLUMN
+      // would throw "duplicate column name".
+      if (migration.name !== "usage_history_audio_modal_tracking") return false;
+      return (
+        hasColumn(db, "usage_history", "duration_seconds") &&
+        hasColumn(db, "usage_history", "input_characters")
+      );
     default:
       return false;
   }

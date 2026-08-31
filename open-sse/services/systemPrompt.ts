@@ -77,7 +77,7 @@ export function getSystemPromptConfig() {
  * @param {object} body - Request body
  * @returns {object} Modified body
  */
-export function injectSystemPrompt(body) {
+export function injectSystemPrompt(body: Record<string, unknown>): Record<string, unknown> {
   const cfg = getConfig();
   if (!cfg.enabled) return body;
   const prefix = cfg.prefixPrompt || "";
@@ -90,29 +90,31 @@ export function injectSystemPrompt(body) {
 
   // OpenAI/Claude format (messages[])
   if (result.messages && Array.isArray(result.messages)) {
-    const sysIdx = result.messages.findIndex((m) => m.role === "system" || m.role === "developer");
-    result.messages = [...result.messages];
+    const messages = result.messages as Array<{ role: string; content: unknown }>;
+    const sysIdx = messages.findIndex((m) => m.role === "system" || m.role === "developer");
+    const updatedMessages = [...messages];
     if (sysIdx >= 0) {
-      const msg = { ...result.messages[sysIdx] };
+      const msg = { ...messages[sysIdx] };
       if (Array.isArray(msg.content)) {
-        const content = [...msg.content];
+        const content = [...(msg.content as unknown[])];
         if (prefix) content.unshift({ type: "text", text: prefix });
         if (suffix) content.push({ type: "text", text: suffix });
         msg.content = content;
       } else {
-        let content = msg.content || "";
+        let content = (msg.content as string | undefined) || "";
         if (prefix) content = prefix + "\n\n" + content;
         if (suffix) content = content + "\n\n" + suffix;
         msg.content = content;
       }
-      result.messages[sysIdx] = msg;
+      updatedMessages[sysIdx] = msg;
     } else {
       // No existing system message — combine both into one
       const combined = [prefix, suffix].filter(Boolean).join("\n\n");
       if (combined) {
-        result.messages = [{ role: "system", content: combined }, ...result.messages];
+        result.messages = [{ role: "system", content: combined }, ...updatedMessages] as unknown[];
       }
     }
+    if (sysIdx >= 0) result.messages = updatedMessages as unknown[];
   }
 
   // Claude format (system field)

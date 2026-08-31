@@ -180,6 +180,25 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
     toName: "radar_local_model_state",
   },
   {
+    // Fork renumber (upstream sync of release/v3.8.51): fork fusion_strategies
+    // had drifted through 134 → 154 → 163 → 165 slots and finally collided
+    // with upstream 165_retire_felo_web. Rehome DBs that applied it under 165
+    // to the new free slot 171 so the upstream retire migration can run at 165.
+    fromVersion: "165",
+    fromName: "fusion_strategies",
+    toVersion: "171",
+    toName: "fusion_strategies",
+  },
+  {
+    // Fork renumber (upstream sync of release/v3.8.51): the fork audio-usage
+    // tracking migration collided with upstream 166_retire_gpl_derived_providers.
+    // Rehome DBs that applied it under 166 to the new free slot 172.
+    fromVersion: "166",
+    fromName: "usage_history_audio_modal_tracking",
+    toVersion: "172",
+    toName: "usage_history_audio_modal_tracking",
+  },
+  {
     fromVersion: "056",
     fromName: "provider_default",
     toVersion: "056",
