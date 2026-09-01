@@ -424,6 +424,13 @@ export async function registerNodejs(): Promise<void> {
     const { startQuotaAutoPing } = await import("@/lib/services/quotaAutoPing");
     startQuotaAutoPing();
     console.log("[STARTUP] Quota auto-ping scheduler started (opt-in, no-op until enabled)");
+    const { startAlibabaFreeTierQuotaAutoSync } = await import(
+      "@/lib/services/alibabaFreeTierQuotaAutoSync"
+    );
+    startAlibabaFreeTierQuotaAutoSync();
+    console.log(
+      "[STARTUP] Alibaba free-tier quota auto-sync scheduler started (6h cadence, free-billing console connections only)"
+    );
     const cloudSyncInitialized = await ensureCloudSyncInitialized();
     console.log(
       `[STARTUP] Cloud/model sync background bootstrap ${cloudSyncInitialized ? "initialized" : "skipped"}`
