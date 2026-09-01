@@ -29,7 +29,10 @@ import {
 } from "@omniroute/open-sse/config/providerRegistry";
 import { CODEX_NATIVE_UNPREFIXED_MODELS } from "@omniroute/open-sse/services/model";
 import { isModelSelectable } from "@omniroute/open-sse/services/modelLifecycle";
-import { resolveNestedComboTargets } from "@omniroute/open-sse/services/combo";
+import {
+  resolveNestedComboTargets,
+  expandProviderWildcardsInCollection,
+} from "@omniroute/open-sse/services/combo";
 import {
   AUTO_TEMPLATE_VARIANTS,
   AUTO_SUFFIX_VARIANTS,
@@ -458,6 +461,14 @@ async function buildUnifiedModelsResponseCore(
     await yieldCatalogBuildTurn();
     try {
       combos = await getCombos();
+      // Provider-wildcard steps (e.g. alibafree style `alibaba/*`) must be expanded
+      // to concrete model steps before target metadata resolution.
+      // Without this, `getComboTargetModelId` resolves a wildcard step to null.
+      // Combo metadata then fail-closes and `effort_tiers` is dropped from the
+      // combo entry, even when every concrete expanded leaf supports tiers.
+      combos = await expandProviderWildcardsInCollection(
+        combos as Parameters<typeof expandProviderWildcardsInCollection>[0]
+      );
     } catch (e) {
       console.log("Could not fetch combos");
     }
@@ -926,12 +937,8 @@ async function buildUnifiedModelsResponseCore(
           context_length: contextLength,
           max_input_tokens: contextLength,
           max_output_tokens: maxOutputTokens,
-          ...(autoInputModalities.length > 0
-            ? { input_modalities: autoInputModalities }
-            : {}),
-          ...(autoOutputModalities.length > 0
-            ? { output_modalities: autoOutputModalities }
-            : {}),
+          ...(autoInputModalities.length > 0 ? { input_modalities: autoInputModalities } : {}),
+          ...(autoOutputModalities.length > 0 ? { output_modalities: autoOutputModalities } : {}),
           capabilities: autoCapabilities,
         });
       } catch (err) {
