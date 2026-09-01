@@ -18,6 +18,7 @@ import {
   isDailyQuotaExhausted,
 } from "@omniroute/open-sse/services/accountFallback";
 import { looksLikeQuotaExhausted } from "@/shared/utils/classify429";
+import { resolveAliasPrefixedModelId } from "@/lib/api/modelTestIdResolution";
 import { getTrustedLocalRateLimitError } from "@omniroute/open-sse/services/rateLimitManager/errors";
 import { runAsProbe } from "@/shared/utils/probeOrigin";
 import { isConnectionUnavailableToAuxiliaryActivity } from "@/lib/exclusiveLeaseIsolation";
@@ -100,6 +101,20 @@ function stripFirstSegment(modelId: string): string | null {
 function getModelLeafId(modelId: string): string {
   const segments = modelId.trim().toLowerCase().split("/").filter(Boolean);
   return segments[segments.length - 1] || "";
+}
+
+/**
+ * Shed any leading routing segment (provider id, display alias, or compatible-
+ * node prefix) from the caller's model id before re-prefixing it for the test
+ * call. The provider pages address models by their display alias (e.g.
+ * "ali/qwen3.8-max" for provider "alibaba"); without this, the re-prefix pass
+ * below produced "alibaba/ali/qwen3.8-max" and the live-catalog gate rejected
+ * it (2026-09-01 incident). Unknown leading namespaces are preserved (#493).
+ */
+function normalizeTestModelId(providerId: string, modelId: string, nodePrefix?: string): string {
+  let out = resolveAliasPrefixedModelId(providerId, modelId);
+  if (nodePrefix) out = resolveAliasPrefixedModelId(nodePrefix, out);
+  return out;
 }
 
 export function resolveModelTestTimeoutMs(
@@ -488,9 +503,10 @@ export async function runSingleModelTest(
     findProviderNode(providerId),
   ]);
   const nodePrefix = providerNode?.prefix || providerId;
-  let fullModelStr = modelId;
+  const bareModelId = normalizeTestModelId(providerId, modelId, providerNode?.prefix);
+  let fullModelStr = bareModelId;
   if (!fullModelStr.startsWith(`${nodePrefix}/`) && !fullModelStr.startsWith(`${providerId}/`)) {
-    fullModelStr = `${nodePrefix}/${modelId}`;
+    fullModelStr = `${nodePrefix}/${bareModelId}`;
   }
   const effectiveTimeoutMs = resolveModelTestTimeoutMs(providerId, fullModelStr, timeoutMs);
 

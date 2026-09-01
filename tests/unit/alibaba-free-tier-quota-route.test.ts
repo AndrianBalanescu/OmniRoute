@@ -42,10 +42,16 @@ test("route: imports requireManagementAuth", () => {
 test("route: GET calls requireManagementAuth before any data access", () => {
   const getBody = getHandlerBody("GET");
   const authIdx = getBody.indexOf("requireManagementAuth(request)");
-  const dataIdx = getBody.indexOf("getCachedProviderConnectionById(id)");
+  // Data access lives in resolveQuotaViews() (connection-id OR provider-id
+  // aggregation); the GET handler must still gate it behind auth.
+  const dataIdx = getBody.indexOf("resolveQuotaViews(id)");
   assert.ok(authIdx >= 0, "auth call must be present in GET");
   assert.ok(dataIdx >= 0, "data access must be present in GET");
   assert.ok(authIdx < dataIdx, "auth check must come before data access");
+  assert.ok(
+    src.indexOf("getCachedProviderConnectionById(id)") > -1,
+    "connection lookup must remain in the route module"
+  );
 });
 
 test("route: GET returns authError early (401 without auth)", () => {
