@@ -6463,7 +6463,8 @@
     "alibabaQuotaStatus": "Status",
     "alibabaQuotaFreeOnlyTag": "free only",
     "alibabaQuotaExpired": "expired",
-    "alibabaQuotaDaysLeft": "{days}d left"
+    "alibabaQuotaDaysLeft": "{days}d left",
+    "alibabaConsoleImportHint": "Trong console Model Studio, mo trang Free Quota, roi mo DevTools (F12) > Network: loc theo \"freeTrial\", click phai request toi bailian-singapore-cs.alibabacloud.com > Copy > Copy as cURL (bash), roi dan vao day. File .har xuat tu cung trang nay cung duoc."
   },
   "settings": {
     "title": "Nastavení",
