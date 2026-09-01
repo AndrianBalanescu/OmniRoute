@@ -51,6 +51,9 @@ export interface ProviderModelsSectionProps {
   syncedAvailableModels: any[];
   compatibleFallbackModels: any[];
 
+  // Alibaba Model Studio per-model free-tier quota badges (model id -> badge)
+  freeQuotaBadges?: Record<string, { label: string; tooltip?: string; className?: string } | null>;
+
   // Clipboard
   copied: string | null;
   onCopy: (text: string) => void;
@@ -131,6 +134,7 @@ export default function ProviderModelsSection({
   modelAliases,
   syncedAvailableModels,
   compatibleFallbackModels,
+  freeQuotaBadges,
   copied,
   onCopy,
   onSetAlias,
@@ -522,6 +526,7 @@ export default function ProviderModelsSection({
               onTestModel={onTestModel}
               testStatus={modelTestStatus[model.id] || null}
               testingModel={testingModelId === model.id}
+              freeQuotaBadge={freeQuotaBadges?.[model.id] ?? null}
             />
           );
         })}
