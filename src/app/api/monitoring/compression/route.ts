@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import pino from "pino";
+
+const logger = pino({ name: "monitoring-compression-api" });
 
 /**
  * GET /api/monitoring/compression — Compression result-memo observability snapshot
@@ -33,7 +36,7 @@ export async function GET() {
       }
     );
   } catch (error) {
-    console.error("[API] GET /api/monitoring/compression error:", error);
+    logger.error({ err: error }, "GET /api/monitoring/compression failed");
     return NextResponse.json(
       { status: "error", error: "compression_stats_unavailable" },
       { status: 503 }
