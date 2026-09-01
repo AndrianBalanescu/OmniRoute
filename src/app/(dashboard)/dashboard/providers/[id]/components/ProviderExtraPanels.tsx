@@ -9,12 +9,16 @@ import ProviderPlaygroundPanel from "./ProviderPlaygroundPanel";
 import ProviderParamFilterSection from "./ProviderParamFilterSection";
 import ProviderInterceptionSection from "./ProviderInterceptionSection";
 import ProviderCcAliasSection from "./ProviderCcAliasSection";
+import ProviderAlibabaFreeTierQuotaSection from "./ProviderAlibabaFreeTierQuotaSection";
 
 export default function ProviderExtraPanels({ providerId }: { providerId: string }) {
   return (
     <>
       {/* Playground panel — rendered for providers that declare serviceKinds */}
       <ProviderPlaygroundPanel providerId={providerId} />
+
+      {/* Alibaba Model Studio per-model free-tier quota (1M-token free usage) */}
+      <ProviderAlibabaFreeTierQuotaSection providerId={providerId} />
 
       {/* Param filters — denylist/allowlist config per provider/model (#6625) */}
       <ProviderParamFilterSection providerId={providerId} />
