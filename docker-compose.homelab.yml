@@ -80,6 +80,7 @@ services:
       - LIVE_WS_HOST=0.0.0.0
       - DATA_DIR=/app/data
       - REDIS_URL=redis://redis:6379
+      - OMNIROUTE_DIRECT_HEADERS_TIMEOUT_MS=90000
       - OMNIROUTE_MEMORY_MB=${OMNIROUTE_MEMORY_MB:-4096}
       - OMNIROUTE_VOICEARENA_WHISPER_URL=http://whisper:8086/v1/transcribe
       - OMNIROUTE_VOICEARENA_KOKORO_URL=http://kokoro:8085/v1/tts
