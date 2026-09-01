@@ -120,9 +120,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     // Provider-addressed aggregate view: merge every active connection.
     if (!addressedAsConnection) {
       const views = connections.map((row) => {
-        const psd = parseProviderSpecificData(
-          (row as { provider_specific_data?: unknown }).provider_specific_data
-        );
+        const raw = row as {
+          providerSpecificData?: unknown;
+          provider_specific_data?: unknown;
+        };
+        // getRawProviderConnections maps rows through rowToCamel, which already
+        // JSON-parses provider_specific_data into providerSpecificData; the
+        // snake_case branch covers direct SQL row shapes.
+        const psd =
+          parseProviderSpecificData(raw.providerSpecificData) ??
+          parseProviderSpecificData(raw.provider_specific_data);
         return { connectionId: row.id as string, ...buildQuotaView(psd ?? {}) };
       });
       const aggregated = aggregateAlibabaQuotaViews(views);
