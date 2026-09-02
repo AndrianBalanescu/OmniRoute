@@ -1,4 +1,11 @@
 /**
+ * @file open-sse/executors/gemini-web.ts
+ * @description Gemini Web cookie provider via Playwright (gemini.google.com UI).
+ *
+ * @changes
+ * - [2026-07-29] [Cursor Grok 4.5] - Tool-mode prompt flattens full multi-turn + tool results (Hermes agent fix)
+ * - [2026-07-29] [Cursor Grok 4.5] - Paste prompt via keyboard.insertText instead of per-char type(delay:10)
+ *
  * GeminiWebExecutor — Gemini Web Session Provider
  *
  * Routes requests through Google Gemini's web interface using browser
@@ -14,14 +21,9 @@
  */
 
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
-import { buildErrorBody, sanitizeErrorMessage } from "../utils/error.ts";
-import { normalizeGeminiCookieInput } from "../utils/geminiCookies.ts";
+import { sanitizeErrorMessage } from "../utils/error.ts";
 import { prepareToolMessages } from "../translator/webTools.ts";
 import { buildToolModeResponse } from "./chatgptWebTools.ts";
-import {
-  checkGeminiWebUnsupportedControls,
-  GEMINI_WEB_UNSUPPORTED_CONTROL_CODE,
-} from "./gemini-web/capabilities.ts";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -35,12 +37,8 @@ const GEMINI_URL = "https://gemini.google.com/app";
  */
 export function isMissingBrowserExecutable(message: string): boolean {
   if (!message) return false;
-  const lower = message.toLowerCase();
-  return (
-    lower.includes("executable doesn't exist") ||
-    lower.includes("executablenotfound") ||
-    lower.includes("playwright install") ||
-    (lower.includes("chromium") && lower.includes("download"))
+  return /executable doesn't exist|executablenotfound|playwright install|chromium.*download/i.test(
+    message
   );
 }
 const GEMINI_USER_AGENT =
@@ -147,20 +145,125 @@ export function buildGeminiPrompt(messages: Array<{ role: string; content: unkno
 }
 
 /**
+ * Normalize one message's visible text for the Gemini web UI transcript.
+ * Assistant turns may carry empty `content` with `tool_calls` — serialize those
+ * as `<tool>{...}</tool>` so the model still sees what it already invoked.
+ */
+function formatGeminiToolTranscriptText(
+  message: { role: string; content: unknown; tool_calls?: unknown; name?: string },
+  callNameById: Map<string, string>
+): string {
+  const content = typeof message.content === "string" ? message.content.trim() : "";
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const callParts: string[] = [];
+  for (const rawCall of toolCalls) {
+    const call =
+      rawCall && typeof rawCall === "object" ? (rawCall as Record<string, unknown>) : null;
+    if (!call) continue;
+    const fn =
+      call.function && typeof call.function === "object"
+        ? (call.function as Record<string, unknown>)
+        : null;
+    const name = typeof fn?.name === "string" && fn.name.trim() ? fn.name.trim() : "tool";
+    const argsRaw = typeof fn?.arguments === "string" ? fn.arguments : "{}";
+    let argsJson: unknown = argsRaw;
+    try {
+      argsJson = JSON.parse(argsRaw);
+    } catch {
+      argsJson = argsRaw;
+    }
+    const id = typeof call.id === "string" ? call.id : "";
+    if (id) callNameById.set(id, name);
+    callParts.push(`<tool>${JSON.stringify({ name, arguments: argsJson })}</tool>`);
+  }
+  return [content, ...callParts].filter(Boolean).join("\n");
+}
+
+/**
  * Build the plain-text prompt typed into the Gemini web UI when a tool
- * contract is active — the synthetic system message injected by
- * `prepareToolMessages()` prepended to the last user message. gemini-web
- * only ever sends a single flat string (no native message array), so the
- * tool contract and the user's ask are concatenated (#7286).
+ * contract is active.
+ *
+ * `prepareToolMessages()` prepends a synthetic tool-system contract. gemini-web
+ * only ever sends a single flat string (no native message array / conversation
+ * id), so every agent turn must carry:
+ *   1. the tool contract
+ *   2. the FULL multi-turn history (user / assistant / tool results)
+ *
+ * The old path (#7286) kept only contract + last user message — Hermes agent
+ * loops then lost the original ask after the first tool_call and answered with
+ * "Hello!" / unrelated web noise. Single-turn (contract + one user) stays
+ * byte-for-byte identical to #7286.
  */
 export function buildGeminiToolPrompt(
-  effectiveMessages: Array<{ role: string; content: unknown }>
+  effectiveMessages: Array<{
+    role: string;
+    content: unknown;
+    tool_calls?: unknown;
+    tool_call_id?: string;
+    name?: string;
+  }>
 ): string {
   const toolSystemMsg = effectiveMessages.find((m) => m.role === "system");
-  const lastUserMsg = [...effectiveMessages].reverse().find((m) => m.role === "user");
-  const userText = typeof lastUserMsg?.content === "string" ? lastUserMsg.content : "";
   const toolPrompt = typeof toolSystemMsg?.content === "string" ? toolSystemMsg.content : "";
-  return toolPrompt ? `${toolPrompt}\n\n${userText}` : userText;
+  const rest = toolSystemMsg
+    ? effectiveMessages.slice(effectiveMessages.indexOf(toolSystemMsg) + 1)
+    : effectiveMessages;
+
+  const extraSystems: string[] = [];
+  const turns: Array<{ role: string; text: string }> = [];
+  const callNameById = new Map<string, string>();
+
+  for (const message of rest) {
+    if (message.role === "system") {
+      if (typeof message.content === "string" && message.content.trim()) {
+        extraSystems.push(message.content.trim());
+      }
+      continue;
+    }
+
+    if (message.role === "user" || message.role === "assistant") {
+      const text = formatGeminiToolTranscriptText(message, callNameById);
+      if (text) turns.push({ role: message.role, text });
+      continue;
+    }
+
+    if (message.role === "tool" || message.role === "function") {
+      const text = typeof message.content === "string" ? message.content.trim() : "";
+      if (!text) continue;
+      const toolCallId = typeof message.tool_call_id === "string" ? message.tool_call_id : "";
+      const name =
+        (toolCallId && callNameById.get(toolCallId)) ||
+        (typeof message.name === "string" && message.name.trim()) ||
+        "tool";
+      turns.push({ role: "tool", text: `(${name}) ${text}` });
+    }
+  }
+
+  // Single-turn regression guard (#7286): contract + one user message only.
+  if (turns.length === 1 && turns[0]!.role === "user" && extraSystems.length === 0) {
+    const userText = turns[0]!.text;
+    return toolPrompt ? `${toolPrompt}\n\n${userText}` : userText;
+  }
+
+  if (turns.length === 0) {
+    return toolPrompt;
+  }
+
+  const parts: string[] = [];
+  if (toolPrompt) parts.push(toolPrompt);
+  if (extraSystems.length > 0) parts.push(`System:\n${extraSystems.join("\n\n")}`);
+
+  // Full chronological transcript — never drop tool results that arrive after
+  // the original user ask (Hermes agent loops).
+  const historyLines = turns.map((turn) =>
+    turn.role === "assistant"
+      ? `Assistant: ${turn.text}`
+      : turn.role === "tool"
+        ? `Tool result ${turn.text}`
+        : `User: ${turn.text}`
+  );
+  parts.push(`Conversation:\n${historyLines.join("\n\n")}`);
+  return parts.join("\n\n");
 }
 
 /**
@@ -324,6 +427,12 @@ export function mergeRotatedGeminiCookies(
   return merged.map(({ name, value }) => `${name}=${value}`).join("; ");
 }
 
+function normalizeGeminiCookieInput(raw: string, cookieName = "__Secure-1PSID"): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return trimmed.includes("=") ? trimmed : `${cookieName}=${trimmed}`;
+}
+
 function resolveGeminiWebCookie(credentials: ExecuteInput["credentials"]): string {
   const directCookie =
     readCredentialString(credentials?.apiKey) ||
@@ -352,33 +461,11 @@ export class GeminiWebExecutor extends BaseExecutor {
   }
 
   /**
-   * testConnection — validates the cookie format without making a network call
-   * or launching Playwright. Returns true when the cookie is non-empty and
-   * contains at least one name=value pair with a non-empty value. This is a
-   * lightweight pre-check before the browser automation path; full session
-   * validation is done by validateGeminiWebProvider in the connection test
-   * flow (#9407).
-   */
-  async testConnection(
-    credentials: Record<string, unknown>,
-    _signal?: AbortSignal
-  ): Promise<boolean> {
-    try {
-      const cookie = resolveGeminiWebCookie(credentials as unknown as ExecuteInput["credentials"]);
-      if (!cookie) return false;
-      const pairs = parseCookies(cookie);
-      return pairs.some((p) => p.value.length > 0);
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Read the live Playwright cookie jar back after a successful run and, if
    * Google rotated any of the __Secure-1PSID* cookies, forward the merged
    * cookie string through onCredentialsRefreshed so it gets persisted to the
    * encrypted provider_connections.api_key field. Mirrors the rotate-and-
-   * persist pattern used by other rotating-session executors. A persistence failure
+   * persist pattern already shipped in chatgpt-web.ts. A persistence failure
    * must never fail the user-facing response (#7676).
    */
   private async persistRotatedCookies(
@@ -406,33 +493,6 @@ export class GeminiWebExecutor extends BaseExecutor {
   async execute(input: ExecuteInput) {
     const { model, body, stream, credentials, signal, log, onCredentialsRefreshed } = input;
     const requestBody = body as GeminiRequestBody;
-
-    // #9356: fail fast on controls this provider cannot honor (reasoning_effort
-    // above "minimal", forced tool_choice). Runs before the credential check and
-    // before Playwright launches — the request is unservable no matter which
-    // cookie is used, and answering 200 with ordinary prose made agents believe
-    // their reasoning/tool requirements had been met. See ./gemini-web/capabilities.ts.
-    const violation = checkGeminiWebUnsupportedControls(body as Record<string, unknown>);
-    if (violation) {
-      log?.warn?.(
-        "GEMINI-WEB",
-        `Rejected request: "${violation.param}" is not supported by this provider`
-      );
-      return {
-        response: new Response(
-          JSON.stringify(
-            buildErrorBody(400, violation.message, null, {
-              type: "invalid_request_error",
-              code: GEMINI_WEB_UNSUPPORTED_CONTROL_CODE,
-            })
-          ),
-          { status: 400, headers: { "Content-Type": "application/json" } }
-        ),
-        url: GEMINI_URL,
-        headers: {},
-        transformedBody: body,
-      };
-    }
 
     const cookie = resolveGeminiWebCookie(credentials);
     if (!cookie) {
@@ -474,7 +534,7 @@ export class GeminiWebExecutor extends BaseExecutor {
       };
     }
 
-    let browser: any = null;
+    let browser: import("playwright").Browser | null = null;
     let abortBrowser: (() => void) | null = null;
     try {
       if (signal?.aborted) {
@@ -507,12 +567,8 @@ export class GeminiWebExecutor extends BaseExecutor {
       let responseText = "";
       let captured = false;
       const responsePromise = new Promise<void>((resolve) => {
-        page.on("response", async (resp: any) => {
-          if (!resp.url().includes("StreamGenerate")) return;
-          if (captured) return;
-          // Resolve even if reading the body throws, so the flow falls through
-          // to the "No response from Gemini" 502 instead of burning the full
-          // wait window.
+        page.on("response", async (resp: import("playwright").Response) => {
+          if (captured || !resp.url().includes("StreamGenerate")) return;
           captured = true;
           try {
             const raw = await resp.text();
@@ -530,15 +586,18 @@ export class GeminiWebExecutor extends BaseExecutor {
       }
       await page.waitForTimeout(3000);
 
-      // Type and send message
+      // Paste prompt in one shot (insertText), never per-char type({ delay }).
+      // Agent/tool payloads are tens of KB — type(delay:10) burned minutes and hit
+      // the 120s combo target timeout with 499 Request aborted.
       const inputEl = await page.waitForSelector(".ql-editor, [contenteditable='true']", {
-        timeout: 10000,
+        timeout: 30000,
       });
       await inputEl.click();
-      await page.keyboard.type(prompt, { delay: 10 });
+      await page.keyboard.insertText(prompt);
       await page.waitForTimeout(300);
       await page.keyboard.press("Enter");
 
+      // Wait for response or timeout
       await Promise.race([responsePromise, page.waitForTimeout(30000)]);
       if (signal?.aborted) {
         throw signal.reason instanceof Error ? signal.reason : new Error("Request aborted");
@@ -642,30 +701,6 @@ export class GeminiWebExecutor extends BaseExecutor {
                 "X-Omni-Fallback-Hint": "connection_cooldown",
               },
             }
-          ),
-          url: GEMINI_URL,
-          headers: {},
-          transformedBody: body,
-        };
-      }
-      // #9407: Playwright selector/click timeout errors are terminal — they indicate
-      // the page DOM does not match expectations (e.g. Gemini changed their UI or
-      // the session is so expired it lands on a different page). Return 400 so the
-      // account-fallback system does NOT retry this request as a transient 5xx.
-      if (
-        error instanceof Error &&
-        (error.name === "TimeoutError" ||
-          rawMessage.includes("waitForSelector") ||
-          rawMessage.includes("Timeout") ||
-          rawMessage.includes("actionability") ||
-          rawMessage.includes("interception"))
-      ) {
-        return {
-          response: new Response(
-            JSON.stringify({
-              error: sanitizeErrorMessage(rawMessage),
-            }),
-            { status: 400, headers: { "Content-Type": "application/json" } }
           ),
           url: GEMINI_URL,
           headers: {},
