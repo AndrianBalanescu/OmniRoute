@@ -170,6 +170,8 @@ const lazyExecutors: Record<string, () => Promise<BaseExecutor>> = {
     ), // Alias
   "doubao-web": () => import("./doubao-web.ts").then((m) => new m.DoubaoWebExecutor()),
   db: () => import("./doubao-web.ts").then((m) => new m.DoubaoWebExecutor()), // Alias
+  raycast: () => import("./raycast.ts").then((m) => new m.RaycastExecutor()),
+  rc: () => import("./raycast.ts").then((m) => new m.RaycastExecutor()), // Alias
   "zai-web": () => import("./zai-web.ts").then((m) => new m.ZaiWebExecutor()),
   zw: () => import("./zai-web.ts").then((m) => new m.ZaiWebExecutor()), // Alias
   theoldllm: () => import("./theoldllm.ts").then((m) => new m.TheOldLlmExecutor()),
