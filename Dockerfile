@@ -112,6 +112,12 @@ RUN test -f package-lock.json \
 # in production (TlsClientUnavailableError, #7802). Run it explicitly here so
 # a broken/rate-limited fetch fails the BUILD loudly instead of shipping a
 # broken image.
+# Pin the tls-client native asset to 1.15.1: bogdanfinn/tls-client's /releases/latest
+# moved to v1.16.0 which ships NO linux-ubuntu-amd64 asset, so an unpinned
+# postinstall throws "No release asset found ... 1.16.0.so" and fails the build.
+# 1.15.1 is the version the previously-deployed image already runs and it ships the
+# ubuntu-amd64 .so. TLS_CLIENT_VERSION steers the postinstall to /tags/v1.15.1.
+ENV TLS_CLIENT_VERSION=1.15.1
 RUN \
   npm ci --include=optional --no-audit --no-fund --legacy-peer-deps --ignore-scripts \
   && (cd node_modules/better-sqlite3 \
