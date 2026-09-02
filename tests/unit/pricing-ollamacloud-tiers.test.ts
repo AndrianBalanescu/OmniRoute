@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { getDefaultPricing, getPricingForModel } from "../../src/shared/constants/pricing.ts";
+import { getPricingForModel } from "../../src/shared/constants/pricing.ts";
 
 // OllamaCloud (provider id `ollama-cloud`, alias `ollamacloud`) is a consumer
 // subscription gateway. Before 2026-08-11 it had NO pricing block in

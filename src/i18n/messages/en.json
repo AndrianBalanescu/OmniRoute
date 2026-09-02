@@ -6464,7 +6464,8 @@
     "alibabaQuotaStatus": "Status",
     "alibabaQuotaFreeOnlyTag": "free only",
     "alibabaQuotaExpired": "expired",
-    "alibabaQuotaDaysLeft": "{days}d left"
+    "alibabaQuotaDaysLeft": "{days}d left",
+    "alibabaConsoleImportHint": "On the Model Studio console, open the Free Quota page, then DevTools (F12) > Network: filter by \"freeTrial\", right-click the request to bailian-singapore-cs.alibabacloud.com > Copy > Copy as cURL (bash), and paste it here. A .har export from the same page works too."
   },
   "settings": {
     "title": "Settings",

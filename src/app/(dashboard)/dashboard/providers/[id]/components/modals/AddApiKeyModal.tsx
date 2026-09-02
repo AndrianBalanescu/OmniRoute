@@ -777,6 +777,13 @@ export default function AddApiKeyModal({
               <HarImportButton
                 provider={provider}
                 onImport={(apiKey) => setFormData({ ...formData, apiKey })}
+                onImportAlibabaCredential={({ cookie, secToken }) =>
+                  setFormData({
+                    ...formData,
+                    alibabaConsoleCookie: cookie,
+                    ...(secToken ? { alibabaConsoleSecToken: secToken } : {}),
+                  })
+                }
               />
             )}
             {!isNoAuthWebSessionCredential && (() => {

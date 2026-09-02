@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireManagementAuth } from "@/lib/api/requireManagementAuth";
 import { getCachedProviderConnectionById } from "@/lib/db/readCache";
-import { updateProviderConnection } from "@/lib/db/providers";
+import { getRawProviderConnections, updateProviderConnection } from "@/lib/db/providers";
+import { parseProviderSpecificData } from "@/lib/db/webSessionDedup";
 import {
   refreshAlibabaFreeTierQuotaClassification,
   hasAlibabaConsoleFreeTierAuth,
@@ -17,9 +18,30 @@ import {
   isAlibabaLiveQuotaSyncAt,
   type AlibabaFreeTierQuotaEntry,
 } from "@omniroute/open-sse/services/alibabaFreeTierQuotaTypes.ts";
+import { aggregateAlibabaQuotaViews } from "@/shared/utils/alibabaQuotaView";
 import { buildErrorBody, sanitizeErrorMessage } from "@omniroute/open-sse/utils/error.ts";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * The provider detail page addresses this endpoint by PROVIDER id (e.g.
+ * "alibaba"), while quota snapshots live per CONNECTION. When the id does not
+ * resolve to a connection, aggregate every active Model Studio connection's
+ * view instead of 404-ing (the section silently hid itself before —
+ * 2026-09-01 incident).
+ */
+async function resolveQuotaViews(id: string) {
+  const byId = await getCachedProviderConnectionById(id);
+  if (byId) return { connections: [byId], addressedAsConnection: true };
+  if (!isAlibabaModelStudioProvider(id)) return { connections: [], addressedAsConnection: false };
+  const connections = await getRawProviderConnections(
+    { provider: id, isActive: true },
+    undefined,
+    undefined,
+    ["id", "provider", "provider_specific_data"]
+  );
+  return { connections, addressedAsConnection: false };
+}
 
 function asPsdRecord(psd: unknown): Record<string, unknown> {
   return psd && typeof psd === "object" && !Array.isArray(psd)
@@ -80,20 +102,41 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   try {
     const { id } = await params;
-    const connection = await getCachedProviderConnectionById(id);
+    const { connections, addressedAsConnection } = await resolveQuotaViews(id);
+    const connection = connections[0];
 
-    if (!connection) {
+    if (!connection && !addressedAsConnection) {
       return NextResponse.json(buildErrorBody("Connection not found"), { status: 404 });
     }
 
-    if (!isAlibabaModelStudioProvider(connection.provider)) {
+    if (connection && !isAlibabaModelStudioProvider(connection.provider)) {
       return NextResponse.json(buildErrorBody("Not an Alibaba Model Studio connection"), {
         status: 400,
       });
     }
 
-    const psd = asPsdRecord(connection.providerSpecificData);
     const wantsRefresh = new URL(request.url).searchParams.get("refresh") === "1";
+
+    // Provider-addressed aggregate view: merge every active connection.
+    if (!addressedAsConnection) {
+      const views = connections.map((row) => {
+        const raw = row as {
+          providerSpecificData?: unknown;
+          provider_specific_data?: unknown;
+        };
+        // getRawProviderConnections maps rows through rowToCamel, which already
+        // JSON-parses provider_specific_data into providerSpecificData; the
+        // snake_case branch covers direct SQL row shapes.
+        const psd =
+          parseProviderSpecificData(raw.providerSpecificData) ??
+          parseProviderSpecificData(raw.provider_specific_data);
+        return { connectionId: row.id as string, ...buildQuotaView(psd ?? {}) };
+      });
+      const aggregated = aggregateAlibabaQuotaViews(views);
+      return NextResponse.json({ providerId: id, refreshed: false, ...aggregated });
+    }
+
+    const psd = asPsdRecord(connection?.providerSpecificData);
 
     if (wantsRefresh) {
       if (!hasAlibabaConsoleFreeTierAuth(psd)) {

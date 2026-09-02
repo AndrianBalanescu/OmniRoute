@@ -31,7 +31,7 @@ test("Returns 401 when no cookies provided", async () => {
     log: null,
   });
   assert.equal(result.response.status, 401);
-  const json = (await result.response.json()) as any;
+  const json = (await result.response.json()) as { error: string };
   assert.ok(json.error.includes("Missing Gemini cookies"));
 });
 
@@ -46,7 +46,7 @@ test("Returns 400 when no user message", async () => {
     log: null,
   });
   assert.equal(result.response.status, 400);
-  const json = (await result.response.json()) as any;
+  const json = (await result.response.json()) as { error: string };
   assert.ok(json.error.includes("No user message"));
 });
 
@@ -70,7 +70,7 @@ test("Reads bulk-imported cookie credentials from providerSpecificData.cookie", 
       stream: false,
       credentials: {
         providerSpecificData: { cookie: "__Secure-1PSID=from-bulk-import" },
-      } as any,
+      } as unknown as Parameters<typeof executor.execute>[0]["credentials"],
       signal: AbortSignal.timeout(5000),
       log: null,
     });
@@ -93,7 +93,7 @@ test("Ignores array-valued providerSpecificData when resolving cookies", async (
     stream: false,
     credentials: {
       providerSpecificData: ["__Secure-1PSID=not-a-record"],
-    } as any,
+    } as unknown as Parameters<typeof executor.execute>[0]["credentials"],
     signal: AbortSignal.timeout(5000),
     log: null,
   });
@@ -126,7 +126,7 @@ test("Normalizes a bare __Secure-1PSID value before adding browser cookies", asy
         }),
       }),
       close: async () => {},
-    }) as any;
+    }) as unknown as ReturnType<typeof playwright.chromium.launch>;
 
   try {
     const executor = new GeminiWebExecutor();
@@ -178,7 +178,7 @@ test("Pastes the full prompt via keyboard.insertText (never per-char type with d
         }),
       }),
       close: async () => {},
-    }) as any;
+    }) as unknown as ReturnType<typeof playwright.chromium.launch>;
 
   try {
     const executor = new GeminiWebExecutor();
@@ -218,7 +218,7 @@ test("Provider: gemini-web has correct models", async () => {
   const { REGISTRY } = await import("../../open-sse/config/providerRegistry.ts");
   const models = REGISTRY["gemini-web"].models;
   assert.deepEqual(
-    models.map((m: any) => [m.id, m.name]),
+    models.map((m: { id: string; name: string }) => [m.id, m.name]),
     [
       ["gemini-3.1-pro", "Gemini 3.1 Pro"],
       ["gemini-3.7-flash", "Gemini 3.7 Flash"],
@@ -273,7 +273,7 @@ test("#2832/#3516: missing Playwright browser returns an actionable 503 with coo
       "connection_cooldown",
       "must signal connection cooldown so the provider breaker is skipped"
     );
-    const json = (await result.response.json()) as any;
+    const json = (await result.response.json()) as { error: string };
     assert.ok(typeof json.error === "string", "error field must be a string");
     assert.match(json.error, /playwright install|not installed/i, "message must be actionable");
     // No raw stack trace / source path leaks into the body.
@@ -309,7 +309,7 @@ test("#2832: GeminiWebExecutor catch block sanitizes Playwright launch errors (i
   // Aborted request should return a structured 500, not throw
   assert.ok(result.response instanceof Response, "must return a Response object");
   assert.equal(result.response.status, 500, "aborted request returns 500");
-  const json = (await result.response.json()) as any;
+  const json = (await result.response.json()) as { error: string };
   assert.ok(typeof json.error === "string", "error must be a string");
   assert.ok(!json.error.includes("at /"), "no stack trace path in error response");
 });

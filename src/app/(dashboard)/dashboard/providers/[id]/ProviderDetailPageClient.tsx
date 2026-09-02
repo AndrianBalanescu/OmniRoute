@@ -41,6 +41,7 @@ import { type ConnectionRowConnection } from "./components/ConnectionRow";
 import { useProviderConnections } from "./hooks/useProviderConnections";
 import { useProviderSettings } from "./hooks/useProviderSettings";
 import { useProviderModels } from "./hooks/useProviderModels";
+import { useAlibabaFreeTierQuotaBadges } from "./hooks/useAlibabaFreeTierQuotaBadges";
 import { useCommandCodeAuth } from "./hooks/useCommandCodeAuth";
 import { useConnectionAutoSync } from "./hooks/useConnectionAutoSync";
 import { useExternalLinkFlow } from "./hooks/useExternalLinkFlow";
@@ -196,6 +197,13 @@ export default function ProviderDetailPageClient() {
     handleSetAlias,
     handleDeleteAlias,
   } = useProviderModels(providerId, isSearchProvider);
+
+  // Alibaba Model Studio free-tier quota badges (no-op fetch for other providers)
+  const isAlibabaQuotaProvider =
+    providerId === "alibaba" || providerId === "alibaba-cn" || providerId === "ali";
+  const { badges: alibabaQuotaBadges } = useAlibabaFreeTierQuotaBadges(providerId, {
+    enabled: isAlibabaQuotaProvider,
+  });
 
   // ── shared hook/store ─────────────────────────────────────────────────────
   const { copied, copy } = useCopyToClipboard();
@@ -808,6 +816,7 @@ export default function ProviderDetailPageClient() {
             effectiveModelPreserveDeveloper={effectiveModelPreserveDeveloper}
             effectiveModelHidden={effectiveModelHidden}
             getUpstreamHeadersRecordForModel={getUpstreamHeadersRecordForModel}
+            freeQuotaBadges={isAlibabaQuotaProvider ? alibabaQuotaBadges : undefined}
             t={t}
           />
 

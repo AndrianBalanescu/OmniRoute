@@ -84,6 +84,17 @@ let selfLoopKeyPromise: Promise<string> | null = null;
  *      memoized so at most one key is created per process.
  *   3. `sk_omniroute` as a final fallback (local mode without auth).
  */
+/**
+ * True when an operator-configured env key exists for the self-loop bypass
+ * (OMNIROUTE_API_KEY / ROUTER_API_KEY). When set, isInternalAdmissionBypass
+ * accepts that exact key, so the describe call can safely use it as the
+ * bearer. When unset, the sentinel compare can never pass a REQUIRE_API_KEY
+ * instance and the DB-backed key must be kept instead (issue #11021).
+ */
+export function isSelfLoopEnvKeyConfigured(): boolean {
+  return Boolean(process.env.OMNIROUTE_API_KEY?.trim() || process.env.ROUTER_API_KEY?.trim());
+}
+
 export async function resolveSelfLoopApiKey(resolver?: () => Promise<string>): Promise<string> {
   const envKey = (process.env.VISION_BRIDGE_API_KEY || "").trim();
   if (envKey) return envKey;
@@ -785,11 +796,24 @@ async function callVisionModelSingle(
         // The compression pipeline must not touch the image payload of the
         // self-loop describe call (stacked RTK/Caveman can mangle data URIs).
         headers["x-omniroute-compression"] = "off";
-        // The admission bypass honors the env key when set (REQUIRE_API_KEY=true
-        // deployments) and the `sk_omniroute` sentinel otherwise. Force the same
-        // resolved credential so the bypass holds even when a real vision key is
-        // configured for the vision model's provider.
-        headers["Authorization"] = `Bearer ${resolveSelfLoopBearer()}`;
+        // (#11021) Keep the already-resolved credential (provider key or
+        // DB-backed self-loop key from resolveSelfLoopApiKey). Forcing
+        // `resolveSelfLoopBearer()` here clobbered the valid key with the
+        // `sk_omniroute` sentinel, which REQUIRE_API_KEY=true deployments
+        // reject with 401 AUTH_002 - every describe failed and all images
+        // were stubbed "(unavailable - no vision-capable provider)".
+        // isInternalAdmissionBypass compares the bearer against
+        // resolveSelfLoopBearer() (env key or sentinel), so the bypass header
+        // only works when an env key is configured or the resolved key IS the
+        // sentinel. Otherwise keep the DB-backed key for authz and drop the
+        // bypass header; admission then uses the normal lease path (the
+        // loopback parent already holds the heavyweight lease).
+        const bypassBearer = resolveSelfLoopBearer();
+        if (selfLoopApiKey === bypassBearer || isSelfLoopEnvKeyConfigured()) {
+          headers["Authorization"] = `Bearer ${bypassBearer}`;
+        } else {
+          delete headers["x-omniroute-admission-bypass"];
+        }
       }
 
       response = await fetchImpl(`${baseUrl}/chat/completions`, {

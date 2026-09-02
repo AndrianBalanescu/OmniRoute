@@ -280,6 +280,11 @@ export interface ModelRowProps {
   onTestModel?: (modelId: string, fullModel: string) => Promise<void>;
   testStatus?: "ok" | "error" | "quota" | null;
   testingModel?: boolean;
+  freeQuotaBadge?: {
+    label: string;
+    tooltip?: string;
+    className?: string;
+  } | null;
 }
 
 export default function ModelRow({
@@ -303,6 +308,7 @@ export default function ModelRow({
   onTestModel,
   testStatus,
   testingModel,
+  freeQuotaBadge,
 }: ModelRowProps) {
   const isHidden = Boolean(model.isHidden);
   const [editing, setEditing] = useState(false);
@@ -359,6 +365,15 @@ export default function ModelRow({
           {fullModel}
         </code>
         <ModelSourceBadge source={model.source} />
+        {freeQuotaBadge && (
+          <span
+            data-testid={`alibaba-quota-badge-${model.id}`}
+            title={freeQuotaBadge.tooltip || freeQuotaBadge.label}
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-wide ${freeQuotaBadge.className || ""}`}
+          >
+            {freeQuotaBadge.label}
+          </span>
+        )}
         {onSetAlias && (
           <span className="flex min-w-0 items-center text-[9px] gap-1">
             {editing ? (

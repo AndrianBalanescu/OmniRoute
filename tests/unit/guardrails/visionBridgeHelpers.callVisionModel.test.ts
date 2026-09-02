@@ -94,6 +94,8 @@ test("callVisionModel returns description on success", async () => {
 });
 
 test("callVisionModel can route a catalog model through the OmniRoute self-loop", async () => {
+  delete process.env.OMNIROUTE_API_KEY;
+  delete process.env.ROUTER_API_KEY;
   let capturedUrl = "";
   let capturedBody: Record<string, unknown> = {};
   let capturedHeaders: Record<string, string> = {};
@@ -117,9 +119,38 @@ test("callVisionModel can route a catalog model through the OmniRoute self-loop"
   assert.equal(url.hostname, "localhost");
   assert.equal(url.pathname, "/v1/chat/completions");
   assert.equal(capturedBody.model, "openai/gpt-4o-mini");
-  assert.equal(capturedHeaders["x-omniroute-admission-bypass"], "internal");
+  // (#11021) No env key configured: the DB-backed self-loop key is kept for
+  // authz and the bypass header is dropped (the internal compare only accepts
+  // the env key or the sk_omniroute sentinel).
+  assert.equal(capturedHeaders["x-omniroute-admission-bypass"], undefined);
+  assert.ok(capturedHeaders["Authorization"]?.startsWith("Bearer sk-"));
+  assert.notEqual(capturedHeaders["Authorization"], "Bearer sk_omniroute");
   assert.match(capturedHeaders["x-omniroute-disabled-guardrails"], /video-bridge/);
   assert.equal(result, "GREEN_SCENE_2");
+});
+
+test("callVisionModel keeps admission bypass when env key is configured", async () => {
+  process.env.OMNIROUTE_API_KEY = "sk-test-env-key";
+  try {
+    let capturedHeaders: Record<string, string> = {};
+    const fetchImpl: typeof fetch = async (_input, init) => {
+      capturedHeaders = (init?.headers ?? {}) as Record<string, string>;
+      return Response.json({ choices: [{ message: { content: "OK" } }] });
+    };
+    await callVisionModel("data:image/png;base64,iVBORw0KGgo", {
+      model: "openai/gpt-4o-mini",
+      prompt: "p",
+      timeoutMs: 30000,
+      maxImages: 1,
+      routeThroughOmniRoute: true,
+      fetchImpl,
+    });
+    assert.equal(capturedHeaders["x-omniroute-admission-bypass"], "internal");
+    assert.equal(capturedHeaders["Authorization"], "Bearer sk-test-env-key");
+  } finally {
+    delete process.env.OMNIROUTE_API_KEY;
+    delete process.env.ROUTER_API_KEY;
+  }
 });
 
 test("callVisionModel throws on HTTP error", async () => {

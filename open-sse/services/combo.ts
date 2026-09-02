@@ -316,6 +316,7 @@ export {
   resolveNestedComboTargets,
   validateComboDAG,
 } from "./combo/comboStructure.ts";
+export { expandProviderWildcardsInCollection } from "./combo/providerWildcard.ts";
 
 /**
  * #6692: release a session-stickiness pin the moment its bound connection is
