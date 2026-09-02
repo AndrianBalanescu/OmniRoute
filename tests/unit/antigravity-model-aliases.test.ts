@@ -260,3 +260,47 @@ test("AntigravityExecutor.transformRequest sends Claude through Gemini-compatibl
   assert.equal(request.thinking, undefined);
   assert.equal(request.generationConfig.thinkingConfig, undefined);
 });
+
+// The bare `gemini-3.8-flash` is registered as a real catalog id (not just an
+// alias key) because the live /models sync does not advertise the bare id yet,
+// so it would otherwise be unreachable on the static provider-determination
+// path and 400 with "unable to determine provider". The 3.7 bare id can rely
+// on the live synced catalog; 3.8 cannot, so it is pinned here as a regression
+// guard.
+test("bare gemini-3.8-flash is a registered, user-callable catalog id", () => {
+  assert.ok(
+    getPublicModel("gemini-3.8-flash"),
+    "bare gemini-3.8-flash must be a real entry in ANTIGRAVITY_PUBLIC_MODELS (not only an alias key)"
+  );
+  assert.equal(
+    getClientVisibleAntigravityModelName("gemini-3.8-flash"),
+    "Gemini 3.8 Flash",
+    "bare gemini-3.8-flash must have a distinct client-visible name"
+  );
+  assert.equal(
+    isUserCallableAntigravityModelId("gemini-3.8-flash"),
+    true,
+    "bare gemini-3.8-flash must be user-callable"
+  );
+  assert.equal(
+    isDiscoverableAntigravityModelId("gemini-3.8-flash"),
+    true,
+    "bare gemini-3.8-flash must be discoverable"
+  );
+});
+
+test("bare gemini-3.8-flash resolves to the upstream tiered wire id", () => {
+  // The bare id is a display/canonical alias of the tiered upstream model, so
+  // provider determination keys on the bare id but the executor sends the
+  // tiered wire id upstream (via resolveAntigravityModelId in cleanModelName).
+  assert.equal(resolveAntigravityModelId("gemini-3.8-flash"), "gemini-3.8-flash-tiered");
+});
+
+test("bare and tiered gemini-3.8-flash are distinct catalog ids (no duplicate-id collision)", () => {
+  const ids = ANTIGRAVITY_PUBLIC_MODELS.map((m) => m.id);
+  assert.ok(ids.includes("gemini-3.8-flash"));
+  assert.ok(ids.includes("gemini-3.8-flash-tiered"));
+  const seen = new Set<string>();
+  const dups = ids.filter((id) => (seen.has(id) ? true : (seen.add(id), false)));
+  assert.deepEqual(dups, [], `no duplicate catalog ids: ${dups.join(", ")}`);
+});

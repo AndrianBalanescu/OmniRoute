@@ -50,6 +50,20 @@ export const AGY_PUBLIC_MODELS = Object.freeze([
     supportsVision: true,
     toolCalling: true,
   },
+  // Gemini 3.8 Flash: the bare id is the canonical wire id (it resolves on the
+  // upstream without a tier suffix), so it is registered as a real catalog entry
+  // to keep it resolvable on the static provider-determination path (the live
+  // /models sync does not advertise it). The tiered variant below consolidates
+  // all three budgets into one endpoint and is a distinct wire id.
+  {
+    id: "gemini-3.8-flash",
+    name: "Gemini 3.8 Flash",
+    contextLength: 1048576,
+    maxOutputTokens: 65536,
+    supportsReasoning: true,
+    supportsVision: true,
+    toolCalling: true,
+  },
   // Gemini 3.8 Flash tiers
   {
     id: "gemini-3.8-flash-high",
