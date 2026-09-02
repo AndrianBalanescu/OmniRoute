@@ -97,7 +97,9 @@ export class RaycastExecutor extends BaseExecutor {
         response: new Response(
           JSON.stringify({
             error: {
-              message: sanitizeErrorMessage(`Raycast API error (${raycastResponse.status})`),
+              message: sanitizeErrorMessage(
+                `Raycast API error (${raycastResponse.status})${errorText ? `: ${errorText.slice(0, 200)}` : ""}`
+              ),
               type: "api_error",
               code: String(raycastResponse.status),
             },
