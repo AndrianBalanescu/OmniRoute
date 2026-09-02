@@ -119,11 +119,6 @@
       "count": 1
     }
   },
-  "open-sse/executors/gemini-web.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    }
-  },
   "open-sse/executors/ghe-copilot.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 3
@@ -4061,11 +4056,6 @@
   "tests/unit/gemini-tool-params-object-3357.test.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 2
-    }
-  },
-  "tests/unit/gemini-web.test.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 8
     }
   },
   "tests/unit/github-claude-reasoning-effort-granular.test.ts": {
