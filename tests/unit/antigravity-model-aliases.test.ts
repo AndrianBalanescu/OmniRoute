@@ -25,6 +25,9 @@ const EXPECTED_FLASH_TIERS = [
   ["gemini-3.7-flash-high", "Gemini 3.7 Flash (High)"],
   ["gemini-3.7-flash-medium", "Gemini 3.7 Flash (Medium)"],
   ["gemini-3.7-flash-low", "Gemini 3.7 Flash (Low)"],
+  ["gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"],
+  ["gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"],
+  ["gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"],
 ] as const;
 
 const RETIRED_FLASH_IDS = [
@@ -58,10 +61,15 @@ test("toClientAntigravityQuotaModelId preserves upstream Gemini Flash bucket IDs
 test("resolveAntigravityModelId maps the documented Antigravity aliases to upstream IDs", () => {
   assert.equal(resolveAntigravityModelId("gemini-3-pro-image-preview"), "gemini-3-pro-image");
   for (const [modelId] of EXPECTED_FLASH_TIERS) {
-    assert.equal(resolveAntigravityModelId(modelId), "gemini-3.7-flash-tiered");
+    const expectedTier = modelId.startsWith("gemini-3.8")
+      ? "gemini-3.8-flash-tiered"
+      : "gemini-3.7-flash-tiered";
+    assert.equal(resolveAntigravityModelId(modelId), expectedTier);
   }
   assert.equal(resolveAntigravityModelId("gemini-3.7-flash"), "gemini-3.7-flash-tiered");
   assert.equal(resolveAntigravityModelId("gemini-3.7-flash-tiered"), "gemini-3.7-flash-tiered");
+  assert.equal(resolveAntigravityModelId("gemini-3.8-flash"), "gemini-3.8-flash-tiered");
+  assert.equal(resolveAntigravityModelId("gemini-3.8-flash-tiered"), "gemini-3.8-flash-tiered");
   assert.equal(resolveAntigravityModelId("gpt-oss-120b"), "gpt-oss-120b-medium");
   assert.equal(resolveAntigravityModelId("gemini-claude-sonnet-4-5"), "claude-sonnet-4-6");
   assert.equal(resolveAntigravityModelId("gemini-claude-sonnet-4-5-thinking"), "claude-sonnet-4-6");
