@@ -189,3 +189,59 @@ test("getProviderCredentials keeps a disableCooling connection eligible after a 
     );
   }
 });
+
+test("ZeroGPU Space-wide GPU limit is returned without creating a fabricated model cooldown", async () => {
+  await resetStorage();
+
+  const conn = await providersDb.createProviderConnection({
+    provider: "openai-compatible-chat-zerogpu-test",
+    authType: "apikey",
+    apiKey: "sk-zerogpu-limit",
+    isActive: true,
+    testStatus: "active",
+    providerSpecificData: {},
+  });
+
+  const connId = (conn as { id: string }).id;
+  const result = await auth.markAccountUnavailable(
+    connId,
+    429,
+    "ZeroGPU inference error: Space app has reached its GPU limit. Try re-running outside of examples if it happened after clicking one",
+    "openai-compatible-chat-zerogpu-test",
+    "Qwen3.8-27B-Q4_K_M.gguf"
+  );
+  const after = await providersDb.getProviderConnectionById(connId);
+
+  assert.equal(result.shouldFallback, false);
+  assert.equal(result.cooldownMs, 0);
+  assert.ok(!after.rateLimitedUntil, "Space-wide quota must not create a connection cooldown");
+  assert.equal(after.lastErrorType, "quota_exhausted");
+  assert.match(after.lastError || "", /ZeroGPU Space GPU allowance exhausted/);
+});
+
+test("ZeroGPU Space endpoint with adapter-generic 429 is not rewritten as a model cooldown", async () => {
+  await resetStorage();
+
+  const conn = await providersDb.createProviderConnection({
+    provider: "openai-compatible-chat-zerogpu-endpoint-test",
+    authType: "apikey",
+    apiKey: "sk-zerogpu-endpoint",
+    isActive: true,
+    testStatus: "active",
+    providerSpecificData: { baseUrl: "https://abalanescu-flow2.hf.space/v1" },
+  });
+
+  const result = await auth.markAccountUnavailable(
+    (conn as any).id,
+    429,
+    "upstream error",
+    "openai-compatible-chat-zerogpu-endpoint-test",
+    "Qwen3.8-27B-Q4_K_M.gguf"
+  );
+  const after = await providersDb.getProviderConnectionById((conn as any).id);
+
+  assert.equal(result.shouldFallback, false);
+  assert.equal(result.cooldownMs, 0);
+  assert.ok(!after.rateLimitedUntil);
+  assert.equal(after.lastErrorType, "quota_exhausted");
+});

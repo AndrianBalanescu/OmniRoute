@@ -2736,7 +2736,7 @@
   },
   "tests/unit/auth-disable-cooling-2997.test.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 11
+      "count": 13
     }
   },
   "tests/unit/auth-ollama-cloud-per-model-403-3027.test.ts": {

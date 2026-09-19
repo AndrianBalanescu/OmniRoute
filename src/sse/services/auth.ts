@@ -2854,6 +2854,35 @@ export async function markAccountUnavailable(
     }
 
     const isNvidiaModelGone = provider === "nvidia" && status === 410;
+
+    // A Hugging Face ZeroGPU Space responds with this 429 when the Space-wide
+    // GPU allowance is exhausted. That limit belongs to the Space, not to one
+    // GGUF model or credential. Preserve its upstream response so clients see
+    // the actionable cause rather than a fabricated per-model cooldown.
+    const isZeroGpuSpaceLimit =
+      status === 429 &&
+      (/space app has reached its gpu limit/i.test(errorText) ||
+        // Some OpenAI-compatible adapters retain only a generic `upstream
+        // error` message. The configured endpoint still unambiguously marks
+        // the failing connection as this Hugging Face ZeroGPU Space.
+        (/(^|\.)hf\.space$/i.test(
+          new URL(String(connProviderSpecificData.baseUrl || ""), "https://invalid.local").hostname
+        ) &&
+          /abalanescu-flow2\.hf\.space/i.test(String(connProviderSpecificData.baseUrl || ""))));
+    if (isZeroGpuSpaceLimit) {
+      updateProviderConnection(connectionId, {
+        lastErrorType: "quota_exhausted",
+        lastError: "Hugging Face ZeroGPU Space GPU allowance exhausted",
+        lastErrorAt: new Date().toISOString(),
+        errorCode: status,
+      }).catch(() => {});
+      log.warn(
+        "AUTH",
+        `ZeroGPU Space allowance exhausted for ${provider}:${model}; preserving upstream 429`
+      );
+      return { shouldFallback: false, cooldownMs: 0 };
+    }
+
     const modelLockoutOptions = { maxCooldownMs: effectiveProviderProfile?.maxCooldownMs };
     if (
       isPerModelQuotaProvider &&

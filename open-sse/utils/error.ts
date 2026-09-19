@@ -462,9 +462,13 @@ export async function parseUpstreamError(response: Response, provider: string | 
       // stack) — still routed through sanitizeErrorMessage/buildErrorBody by
       // every consumer below (Rule #12).
       const { error: clinepassEnvError } = unwrapClinepassEnvelope(json, provider);
+      // FastAPI and several OpenAI-compatible gateways use `{ detail: "..." }`
+      // for errors. Keep that actionable upstream text instead of replacing it
+      // with the raw JSON envelope, so quota and availability classifiers can
+      // distinguish a Space-wide GPU limit from an ordinary request rate limit.
       message = clinepassEnvError
         ? clinepassEnvError.message
-        : json.error?.message || json.message || json.error || text;
+        : json.error?.message || json.message || json.detail || json.error || text;
       errorCode = json.error?.code || json.code;
       errorType = json.error?.type || json.type;
     } catch {

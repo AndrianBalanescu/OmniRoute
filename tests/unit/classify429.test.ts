@@ -443,3 +443,15 @@ test("classify429: retryDelay outside a RetryInfo detail is ignored", () => {
   };
   assert.equal(classify429({ status: 429, body }), "quota_exhausted");
 });
+
+test("parseUpstreamError preserves a FastAPI detail message for 429 classification", async () => {
+  const { parseUpstreamError } = await import("../../open-sse/utils/error.ts");
+  const response = new Response(
+    JSON.stringify({ detail: "ZeroGPU inference error: Space app has reached its GPU limit." }),
+    { status: 429, headers: { "content-type": "application/json" } }
+  );
+  const parsed = await parseUpstreamError(response);
+
+  assert.match(parsed.message, /Space app has reached its GPU limit/i);
+  assert.equal(classify429({ status: 429, body: parsed.message }), "quota_exhausted");
+});
