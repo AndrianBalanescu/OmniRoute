@@ -205,13 +205,45 @@ export const RENAMED_MIGRATION_COMPATIBILITY = [
   },
   {
     // Fork renumber (upstream sync of release/v3.8.51): fork fusion_strategies
-    // had drifted through 134 → 154 → 163 → 165 slots and finally collided
-    // with upstream 165_retire_felo_web. Rehome DBs that applied it under 165
-    // to the new free slot 171 so the upstream retire migration can run at 165.
+    // had drifted through 134 → 143 → 154 → 163 → 165 slots and finally collided
+    // with upstream 165_retire_felo_web. Rehome DBs that applied it under 134/143/154/163/165
+    // to the new free slot 171 so the upstream migrations can run at their disk slots.
+    fromVersion: "134",
+    fromName: "fusion_strategies",
+    toVersion: "171",
+    toName: "fusion_strategies",
+  },
+  {
+    fromVersion: "143",
+    fromName: "fusion_strategies",
+    toVersion: "171",
+    toName: "fusion_strategies",
+  },
+  {
+    fromVersion: "154",
+    fromName: "fusion_strategies",
+    toVersion: "171",
+    toName: "fusion_strategies",
+  },
+  {
+    fromVersion: "163",
+    fromName: "fusion_strategies",
+    toVersion: "171",
+    toName: "fusion_strategies",
+  },
+  {
     fromVersion: "165",
     fromName: "fusion_strategies",
     toVersion: "171",
     toName: "fusion_strategies",
+  },
+  {
+    // Rehome call_logs_response_id from the transient 164 slot back to canonical 154
+    // so 164_retire_microsoft_designer_web can run at 164.
+    fromVersion: "164",
+    fromName: "call_logs_response_id",
+    toVersion: "154",
+    toName: "call_logs_response_id",
   },
   {
     // Fork renumber (upstream sync of release/v3.8.51): the fork audio-usage

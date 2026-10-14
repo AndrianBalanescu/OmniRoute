@@ -274,6 +274,23 @@ export async function cleanupMemoryEntries(): Promise<CleanupResult> {
       `[Cleanup] Deleted ${result.deleted} memory_entries older than ${retentionDays} days`
     );
   } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/no such table:\s*(?:main\.)?memory_fts/i.test(message)) {
+      try {
+        const { repairMemoryFtsOrphan } = await import("./migrationRunner");
+        if (repairMemoryFtsOrphan(db)) {
+          const retryStmt = db.prepare("DELETE FROM memories WHERE created_at < ?");
+          const retryRun = retryStmt.run(cutoffISO);
+          result.deleted = retryRun.changes;
+          console.log(
+            `[Cleanup] Repaired memory_fts and deleted ${result.deleted} memory_entries older than ${retentionDays} days`
+          );
+          return result;
+        }
+      } catch (repairErr: unknown) {
+        console.error("[Cleanup] Self-heal attempt for memory_fts failed:", repairErr);
+      }
+    }
     console.error("[Cleanup] Error cleaning memory_entries:", err);
     result.errors++;
   }

@@ -222,6 +222,121 @@ function isDeferredUnsupportedMigration(
   return isOptionalFts5Migration(migration) && !supportsFts5(db);
 }
 
+/** Shadow tables SQLite creates for the `memory_fts` FTS5 virtual table. */
+const MEMORY_FTS_SHADOW_TABLES = [
+  "memory_fts_data",
+  "memory_fts_idx",
+  "memory_fts_docsize",
+  "memory_fts_config",
+] as const;
+
+/** Triggers (from migration 023) that keep `memory_fts` in sync with `memories`. */
+const MEMORY_FTS_TRIGGERS = ["memory_fts_ai", "memory_fts_ad", "memory_fts_au"] as const;
+
+/**
+ * Detect and heal an orphaned `memory_fts` FTS5 state: shadow tables and/or
+ * sync triggers exist while the parent virtual table is gone. In that state
+ * every `DELETE FROM memories` (e.g. the auto-cleanup retention pass) fails
+ * with `no such table: main.memory_fts`, because the triggers reference the
+ * missing parent. `CREATE VIRTUAL TABLE` alone cannot heal it either — FTS5
+ * refuses to create a virtual table whose shadow tables already exist.
+ *
+ * The repair drops the orphaned shadows + triggers, recreates the virtual
+ * table and triggers exactly as migration 023 defines them, and repopulates
+ * the index from `memories`. Safe to call on every DB open: it is a no-op
+ * unless the broken state is detected.
+ *
+ * Returns true when a repair was performed.
+ */
+export function repairMemoryFtsOrphan(db: SqliteAdapter): boolean {
+  try {
+    const hasParent = hasTable(db, "memory_fts");
+    if (hasParent) return false; // healthy — nothing to do
+
+    const hasShadow = MEMORY_FTS_SHADOW_TABLES.some((t) => hasTable(db, t));
+    const hasTrigger = MEMORY_FTS_TRIGGERS.some(
+      (t) =>
+        db.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name = ?").get(t) !==
+        undefined
+    );
+    if (!hasShadow && !hasTrigger) return false; // plain missing table — migration territory
+
+    // Confirm we can (and should) recreate the index: FTS5 support and the
+    // memory_id rowid bridge from migration 023.
+    if (!supportsFts5(db)) {
+      console.warn(
+        "[Migration] memory_fts is orphaned but FTS5 is unavailable on this driver; " +
+          "dropping stale shadow artifacts only. Memory search stays degraded until FTS5 is available."
+      );
+      db.transaction(() => {
+        for (const trigger of MEMORY_FTS_TRIGGERS) {
+          db.exec(`DROP TRIGGER IF EXISTS ${trigger};`);
+        }
+        db.exec("DROP TABLE IF EXISTS memory_fts;");
+        for (const shadow of MEMORY_FTS_SHADOW_TABLES) {
+          db.exec(`DROP TABLE IF EXISTS ${shadow};`);
+        }
+      })();
+      return true;
+    }
+    if (!hasTable(db, "memories") || !hasColumn(db, "memories", "memory_id")) return false;
+
+    console.warn(
+      "[Migration] Detected orphaned memory_fts FTS5 state (shadow tables/triggers without the " +
+        "parent virtual table). Recreating memory_fts and repopulating from memories."
+    );
+
+    db.transaction(() => {
+      // 1. Drop the broken artifacts so CREATE VIRTUAL TABLE can run.
+      for (const trigger of MEMORY_FTS_TRIGGERS) {
+        db.exec(`DROP TRIGGER IF EXISTS ${trigger};`);
+      }
+      db.exec("DROP TABLE IF EXISTS memory_fts;");
+      for (const shadow of MEMORY_FTS_SHADOW_TABLES) {
+        db.exec(`DROP TABLE IF EXISTS ${shadow};`);
+      }
+
+      // 2. Recreate exactly as migration 023 does.
+      db.exec(`
+        CREATE VIRTUAL TABLE memory_fts USING fts5(
+          content,
+          key,
+          content='memories'
+        );
+      `);
+      db.exec(`
+        CREATE TRIGGER memory_fts_ai AFTER INSERT ON memories BEGIN
+          INSERT INTO memory_fts(rowid, content, key) VALUES (new.memory_id, new.content, new.key);
+        END;
+      `);
+      db.exec(`
+        CREATE TRIGGER memory_fts_ad AFTER DELETE ON memories BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, content, key) VALUES('delete', old.memory_id, old.content, old.key);
+        END;
+      `);
+      db.exec(`
+        CREATE TRIGGER memory_fts_au AFTER UPDATE ON memories BEGIN
+          INSERT INTO memory_fts(memory_fts, rowid, content, key) VALUES('delete', old.memory_id, old.content, old.key);
+          INSERT INTO memory_fts(rowid, content, key) VALUES (new.memory_id, new.content, new.key);
+        END;
+      `);
+
+      // 3. Repopulate the index from the surviving rows.
+      db.exec(
+        "INSERT INTO memory_fts(rowid, content, key) SELECT memory_id, content, key FROM memories WHERE memory_id IS NOT NULL;"
+      );
+    })();
+
+    console.log("[Migration] memory_fts repaired successfully.");
+    return true;
+  } catch (err: unknown) {
+    // Never block startup on the repair: log and let the caller proceed.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[Migration] Failed to repair orphaned memory_fts: ${message}`);
+    return false;
+  }
+}
+
 /**
  * Get all migration files sorted by version number.
  */
@@ -954,6 +1069,11 @@ function createPreMigrationBackup(db: SqliteAdapter): string | null {
 export function runMigrations(db: SqliteAdapter, options?: { isNewDb?: boolean }): number {
   const isNewDb = options?.isNewDb === true;
   ensureMigrationsTable(db);
+
+  // Heal a broken FTS5 state before any migration/cleanup touches `memories`:
+  // an orphaned memory_fts (shadows/triggers without the parent) makes every
+  // `DELETE FROM memories` fail with `no such table: main.memory_fts`.
+  repairMemoryFtsOrphan(db);
 
   const files = filterSupersededDuplicateMigrations(getMigrationFiles());
   rehomeLegacyVersionSlotMigrations(db, files);
