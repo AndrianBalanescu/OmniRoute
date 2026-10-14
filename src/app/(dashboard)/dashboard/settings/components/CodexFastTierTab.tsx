@@ -14,6 +14,10 @@ type TierValue = "default" | "priority" | "flex";
 // Other future Fast-eligible slugs can be added here without code changes once the user
 // opts them in via the checkbox UI.
 const CODEX_FAST_TIER_CATALOG: readonly string[] = [
+  "gpt-6.1-sol",
+  "gpt-6-sol",
+  "gpt-6-luna",
+  "gpt-6-astra",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",

@@ -316,6 +316,8 @@ export const GPT_5_6_CODEX_CAPABILITIES = {
   maxOutputTokens: 128000,
 } as const;
 
+export const GPT_6_CODEX_CAPABILITIES = GPT_5_6_CODEX_CAPABILITIES;
+
 export const CHAT_OPENAI_COMPAT_MODELS: Record<string, RegistryModel[]> = {
   deepinfra: buildModels([
     "anthropic/claude-4-opus",

@@ -514,6 +514,24 @@ test("codex.buildCodexDiscoveryCatalog merges then filters in one step", () => {
   );
 });
 
+test("codex.normalizeCodexModelsResponse accepts GPT-6 / GPT-6.1 models up to client version 0.155.0", () => {
+  const models = normalizeCodexModelsResponse({
+    models: [
+      { slug: "gpt-6.1-sol", display_name: "GPT-6.1-Sol", minimal_client_version: "0.153.0" },
+      { slug: "gpt-6-sol", display_name: "GPT-6-Sol", minimal_client_version: "0.155.0" },
+      { slug: "gpt-6-luna", display_name: "GPT-6-Luna", minimal_client_version: "0.155.0" },
+      { slug: "gpt-6-astra", display_name: "GPT-6-Astra", minimal_client_version: "0.153.0" },
+      { slug: "gpt-7-future", display_name: "GPT-7", minimal_client_version: "0.999.0" },
+    ],
+  });
+  const ids = models.map((m) => m.id);
+  assert.ok(ids.includes("gpt-6.1-sol"));
+  assert.ok(ids.includes("gpt-6-sol"));
+  assert.ok(ids.includes("gpt-6-luna"));
+  assert.ok(ids.includes("gpt-6-astra"));
+  assert.equal(ids.includes("gpt-7-future"), false);
+});
+
 test("codex.normalizeCodexModelsResponse drops entries without an id", () => {
   const parsed = normalizeCodexModelsResponse({ models: [{ name: "" }, { model: "gpt-5.4" }] });
   assert.deepEqual(

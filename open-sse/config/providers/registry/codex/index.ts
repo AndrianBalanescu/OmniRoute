@@ -1,5 +1,6 @@
 import type { RegistryEntry } from "../../shared.ts";
 import {
+  GPT_6_CODEX_CAPABILITIES,
   GPT_5_6_CODEX_CAPABILITIES,
   GPT_5_5_CODEX_CAPABILITIES,
   getCodexDefaultHeaders,
@@ -28,6 +29,162 @@ export const codexProvider: RegistryEntry = {
     tokenUrl: "https://auth.openai.com/oauth/token",
   },
   models: [
+    {
+      id: "gpt-6.1-sol",
+      name: "GPT 6.1 Sol",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6.1-sol-ultra",
+      name: "GPT 6.1 Sol (Ultra)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6.1-sol-max",
+      name: "GPT 6.1 Sol (Max)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6.1-sol-xhigh",
+      name: "GPT 6.1 Sol (xHigh)",
+      ...GPT_6_CODEX_CAPABILITIES,
+      // #6354: reasoning-heavy tier — more header-wait room than the global default.
+      timeoutMs: 1200000,
+    },
+    {
+      id: "gpt-6.1-sol-high",
+      name: "GPT 6.1 Sol (High)",
+      ...GPT_6_CODEX_CAPABILITIES,
+      // #6354: reasoning-heavy tier — more header-wait room than the global default.
+      timeoutMs: 1200000,
+    },
+    {
+      id: "gpt-6.1-sol-medium",
+      name: "GPT 6.1 Sol (Medium)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6.1-sol-low",
+      name: "GPT 6.1 Sol (Low)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol",
+      name: "GPT 6 Sol",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-ultra",
+      name: "GPT 6 Sol (Ultra)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-max",
+      name: "GPT 6 Sol (Max)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-xhigh",
+      name: "GPT 6 Sol (xHigh)",
+      ...GPT_6_CODEX_CAPABILITIES,
+      // #6354: reasoning-heavy tier — more header-wait room than the global default.
+      timeoutMs: 1200000,
+    },
+    {
+      id: "gpt-6-sol-high",
+      name: "GPT 6 Sol (High)",
+      ...GPT_6_CODEX_CAPABILITIES,
+      // #6354: reasoning-heavy tier — more header-wait room than the global default.
+      timeoutMs: 1200000,
+    },
+    {
+      id: "gpt-6-sol-medium",
+      name: "GPT 6 Sol (Medium)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-sol-low",
+      name: "GPT 6 Sol (Low)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna",
+      name: "GPT 6 Luna",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-ultra",
+      name: "GPT 6 Luna (Ultra)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-max",
+      name: "GPT 6 Luna (Max)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-xhigh",
+      name: "GPT 6 Luna (xHigh)",
+      ...GPT_6_CODEX_CAPABILITIES,
+      // #6354: reasoning-heavy tier — more header-wait room than the global default.
+      timeoutMs: 1200000,
+    },
+    {
+      id: "gpt-6-luna-high",
+      name: "GPT 6 Luna (High)",
+      ...GPT_6_CODEX_CAPABILITIES,
+      // #6354: reasoning-heavy tier — more header-wait room than the global default.
+      timeoutMs: 1200000,
+    },
+    {
+      id: "gpt-6-luna-medium",
+      name: "GPT 6 Luna (Medium)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-luna-low",
+      name: "GPT 6 Luna (Low)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-astra",
+      name: "GPT 6 Astra",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-astra-ultra",
+      name: "GPT 6 Astra (Ultra)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-astra-max",
+      name: "GPT 6 Astra (Max)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-astra-xhigh",
+      name: "GPT 6 Astra (xHigh)",
+      ...GPT_6_CODEX_CAPABILITIES,
+      // #6354: reasoning-heavy tier — more header-wait room than the global default.
+      timeoutMs: 1200000,
+    },
+    {
+      id: "gpt-6-astra-high",
+      name: "GPT 6 Astra (High)",
+      ...GPT_6_CODEX_CAPABILITIES,
+      // #6354: reasoning-heavy tier — more header-wait room than the global default.
+      timeoutMs: 1200000,
+    },
+    {
+      id: "gpt-6-astra-medium",
+      name: "GPT 6 Astra (Medium)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
+    {
+      id: "gpt-6-astra-low",
+      name: "GPT 6 Astra (Low)",
+      ...GPT_6_CODEX_CAPABILITIES,
+    },
     {
       id: "gpt-5.6-sol",
       name: "GPT 5.6 Sol",
