@@ -19,6 +19,7 @@ import {
   decodeExecServerEvent,
   decodeKvServerEvent,
   encodeRequestContextResponse,
+  encodeMcpStateSuccess,
   encodeKvGetBlobResult,
   encodeKvSetBlobResult,
   encodeExecReadRejected,
@@ -26,6 +27,7 @@ import {
   encodeExecDeleteRejected,
   encodeExecLsRejected,
   encodeExecShellRejected,
+  encodeExecShellStreamRejected,
   encodeExecBackgroundShellSpawnRejected,
   encodeExecGrepError,
   encodeExecFetchError,
@@ -134,6 +136,7 @@ function buildExecRejection(event: ExecServerEvent): Buffer | null {
   switch (event.kind) {
     case "exec_request_context":
     case "exec_mcp":
+    case "exec_mcp_state":
       return null;
     case "exec_read":
       return encodeExecReadRejected(
@@ -169,8 +172,15 @@ function buildExecRejection(event: ExecServerEvent): Buffer | null {
       // Diagnostics has no rejection variant — return an empty success.
       return encodeExecDiagnosticsResult(event.execMsgId, event.execId);
     case "exec_shell":
-    case "exec_shell_stream":
       return encodeExecShellRejected(
+        event.execMsgId,
+        event.execId,
+        event.command,
+        event.workingDir,
+        BUILTIN_TOOL_REJECT_REASON
+      );
+    case "exec_shell_stream":
+      return encodeExecShellStreamRejected(
         event.execMsgId,
         event.execId,
         event.command,
@@ -572,6 +582,16 @@ export function processFrame(
           opts.h2Req.write(encodeRequestContextResponse(event.execMsgId, event.execId));
         } catch (e) {
           console.debug(`[CURSOR] request_context ack write failed:`, e);
+        }
+      }
+    } else if (event.kind === "exec_mcp_state") {
+      if (opts.h2Req) {
+        try {
+          opts.h2Req.write(
+            encodeMcpStateSuccess(event.execMsgId, event.execId, opts.mcpTools ?? [])
+          );
+        } catch (e) {
+          console.debug(`[CURSOR] mcp_state ack write failed:`, e);
         }
       }
     } else if (event.kind === "exec_mcp") {

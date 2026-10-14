@@ -5,7 +5,10 @@ import {
   decodeProtobufValue,
   jsonSchemaToProtobufValue,
   openAIToolsToMcpDefs,
+  encodeMcpStateSuccess,
+  encodeExecShellStreamRejected,
 } from "../../open-sse/utils/cursorAgentProtobuf";
+import { decodeFields } from "../../open-sse/utils/cursorAgentProtobuf/wire";
 import {
   newStreamCtx,
   processFrame,
@@ -560,4 +563,99 @@ test("max_tokens and stop are surfaced as output constraints", () => {
 test("no output constraints block when no constraining params are set", () => {
   const text = encodedText({ messages: [{ role: "user", content: "hi" }] });
   assert.ok(!text.includes("OUTPUT CONSTRAINTS:"), "no constraints block by default");
+});
+
+test("decodeExecServerEvent handles ESM_MCP_STATE_EXEC_ARGS (36) and ignores span_context (19)", () => {
+  const mcpStateArgs = lenPrefixed(1, Buffer.from("omniroute", "utf8"));
+  const spanContext = Buffer.from("arbitrary-span-trace-bytes");
+  const esm = Buffer.concat([
+    varintField(1, 42),
+    stringField(15, "test-exec-id"),
+    lenPrefixed(19, spanContext),
+    lenPrefixed(36, mcpStateArgs),
+  ]);
+  const frame = lenPrefixed(2, esm);
+
+  const event = decodeExecServerEvent(frame);
+  assert.ok(event);
+  assert.equal(event.kind, "exec_mcp_state");
+  if (event.kind === "exec_mcp_state") {
+    assert.equal(event.execMsgId, 42);
+    assert.equal(event.execId, "test-exec-id");
+    assert.deepEqual(event.serverIdentifiers, ["omniroute"]);
+  }
+});
+
+test("encodeMcpStateSuccess wraps tools with status connected in ExecClientMessage", () => {
+  const defs = openAIToolsToMcpDefs([weatherTool]);
+  const frame = encodeMcpStateSuccess(1, "exec-123", defs, "omniroute");
+  assert.ok(frame.length > 5);
+  assert.equal(frame[0], 0);
+  const payload = frame.subarray(5);
+  const fields = decodeFields(payload);
+  const ecmField = fields.find((f) => f.fieldNumber === 2 && f.wireType === 2);
+  assert.ok(ecmField);
+  const ecmFields = decodeFields(ecmField.bytes);
+  assert.equal(ecmFields.find((f) => f.fieldNumber === 1)?.varint, 1n);
+  assert.equal(ecmFields.find((f) => f.fieldNumber === 15)?.bytes.toString("utf8"), "exec-123");
+  const resultField = ecmFields.find((f) => f.fieldNumber === 36 && f.wireType === 2);
+  assert.ok(resultField, "mcp_state_exec_result (field 36) present in ExecClientMessage");
+});
+
+test("encodeExecShellStreamRejected wraps ShellStream.rejected on field 14", () => {
+  const frame = encodeExecShellStreamRejected(1, "exec-123", "ls", "/tmp", "denied");
+  assert.ok(frame.length > 5);
+  const payload = frame.subarray(5);
+  const fields = decodeFields(payload);
+  const ecmField = fields.find((f) => f.fieldNumber === 2 && f.wireType === 2);
+  assert.ok(ecmField);
+  const ecmFields = decodeFields(ecmField.bytes);
+  assert.equal(ecmFields.find((f) => f.fieldNumber === 1)?.varint, 1n);
+  const streamResultField = ecmFields.find((f) => f.fieldNumber === 14 && f.wireType === 2);
+  assert.ok(streamResultField, "shell_stream (field 14) present in ExecClientMessage");
+});
+
+test("decodeFields skips wireType 3 and 4 groups without throwing", () => {
+  const groupBuf = Buffer.concat([tag(10, 3), tag(1, 0), v(123), tag(10, 4), tag(2, 0), v(456)]);
+  const fields = decodeFields(groupBuf);
+  assert.equal(fields.length, 1);
+  assert.equal(fields[0].fieldNumber, 2);
+  assert.equal(fields[0].varint, 456n);
+});
+
+test("processFrame replies to exec_mcp_state with encodeMcpStateSuccess on h2Req", () => {
+  const mcpStateArgs = lenPrefixed(1, Buffer.from("omniroute", "utf8"));
+  const esm = Buffer.concat([
+    varintField(1, 10),
+    stringField(15, "state-req-1"),
+    lenPrefixed(36, mcpStateArgs),
+  ]);
+  const frame = lenPrefixed(2, esm);
+
+  let written: Buffer | null = null;
+  const mockH2Req = {
+    write(buf: Buffer) {
+      written = buf;
+      return true;
+    },
+  } as unknown as Parameters<typeof processFrame>[3]["h2Req"];
+
+  const ctx = newStreamCtx("claude-opus-5-5-medium-fast", () => {});
+  const acked = new Set<string>();
+  const defs = openAIToolsToMcpDefs([weatherTool]);
+
+  processFrame(frame, ctx, acked, {
+    h2Req: mockH2Req,
+    mcpTools: defs,
+  });
+
+  assert.ok(written, "processFrame wrote back response to exec_mcp_state");
+  assert.ok((written as Buffer).length > 5);
+  const payload = (written as Buffer).subarray(5);
+  const ecmField = decodeFields(payload).find((f) => f.fieldNumber === 2);
+  const ecmSub = decodeFields(ecmField!.bytes);
+  assert.ok(
+    ecmSub.some((f) => f.fieldNumber === 36),
+    "wrote field 36 response"
+  );
 });

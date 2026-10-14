@@ -134,9 +134,11 @@ const ECM_READ_RESULT = 7;
 const ECM_LS_RESULT = 8;
 const ECM_DIAGNOSTICS_RESULT = 9;
 const ECM_MCP_RESULT = 11;
+const ECM_SHELL_STREAM = 14;
 const ECM_BACKGROUND_SHELL_SPAWN_RES = 16;
 const ECM_FETCH_RESULT = 20;
 const ECM_WRITE_SHELL_STDIN_RESULT = 23;
+const ECM_MCP_STATE_EXEC_RESULT = 36;
 
 // ExecServerMessage variant tags (used by exec router in Phase 2)
 const ESM_SHELL_ARGS = 2;
@@ -149,8 +151,10 @@ const ESM_DIAGNOSTICS_ARGS = 9;
 const ESM_MCP_ARGS = 11;
 const ESM_SHELL_STREAM_ARGS = 14;
 const ESM_BACKGROUND_SHELL_SPAWN = 16;
+const ESM_SPAN_CONTEXT = 19;
 const ESM_FETCH_ARGS = 20;
 const ESM_WRITE_SHELL_STDIN_ARGS = 23;
+const ESM_MCP_STATE_EXEC_ARGS = 36;
 
 // Args sub-message field numbers (path and shell variants)
 const ARG_PATH = 1; // ReadArgs.path / WriteArgs.path / DeleteArgs.path / LsArgs.path
@@ -751,51 +755,55 @@ export type KvServerEvent =
     };
 
 export function decodeKvServerEvent(payload: Buffer): KvServerEvent | null {
-  for (const top of decodeFields(payload)) {
-    if (top.fieldNumber !== ASM_KV_SERVER_MESSAGE || top.wireType !== 2) continue;
+  try {
+    for (const top of decodeFields(payload)) {
+      if (top.fieldNumber !== ASM_KV_SERVER_MESSAGE || top.wireType !== 2) continue;
 
-    let kvId = 0;
-    let getBlobArgs: Buffer | null = null;
-    let setBlobArgs: Buffer | null = null;
-    let requestMetadata: Buffer | null = null;
+      let kvId = 0;
+      let getBlobArgs: Buffer | null = null;
+      let setBlobArgs: Buffer | null = null;
+      let requestMetadata: Buffer | null = null;
 
-    for (const f of decodeFields(top.bytes)) {
-      if (f.fieldNumber === KSM_ID && f.wireType === 0) {
-        kvId = Number(f.varint);
-      } else if (f.fieldNumber === KSM_GET_BLOB_ARGS && f.wireType === 2) {
-        getBlobArgs = f.bytes;
-      } else if (f.fieldNumber === KSM_SET_BLOB_ARGS && f.wireType === 2) {
-        setBlobArgs = f.bytes;
-      } else if (f.fieldNumber === KSM_REQUEST_METADATA && f.wireType === 2) {
-        requestMetadata = f.bytes;
-      }
-    }
-
-    if (getBlobArgs) {
-      // GetBlobArgs { blob_id (1): bytes }
-      let blobId: Buffer = Buffer.alloc(0);
-      for (const f of decodeFields(getBlobArgs)) {
-        if (f.fieldNumber === GBA_BLOB_ID && f.wireType === 2) {
-          blobId = f.bytes;
+      for (const f of decodeFields(top.bytes)) {
+        if (f.fieldNumber === KSM_ID && f.wireType === 0) {
+          kvId = Number(f.varint);
+        } else if (f.fieldNumber === KSM_GET_BLOB_ARGS && f.wireType === 2) {
+          getBlobArgs = f.bytes;
+        } else if (f.fieldNumber === KSM_SET_BLOB_ARGS && f.wireType === 2) {
+          setBlobArgs = f.bytes;
+        } else if (f.fieldNumber === KSM_REQUEST_METADATA && f.wireType === 2) {
+          requestMetadata = f.bytes;
         }
       }
-      return { kind: "kv_get_blob", kvId, blobId, requestMetadata };
-    }
-    if (setBlobArgs) {
-      // SetBlobArgs { blob_id (1): bytes, blob_data (2): bytes }
-      let blobId: Buffer = Buffer.alloc(0);
-      let blobData: Buffer = Buffer.alloc(0);
-      for (const f of decodeFields(setBlobArgs)) {
-        if (f.fieldNumber === SBA_BLOB_ID && f.wireType === 2) {
-          blobId = f.bytes;
-        } else if (f.fieldNumber === SBA_BLOB_DATA && f.wireType === 2) {
-          blobData = f.bytes;
+
+      if (getBlobArgs) {
+        // GetBlobArgs { blob_id (1): bytes }
+        let blobId: Buffer = Buffer.alloc(0);
+        for (const f of decodeFields(getBlobArgs)) {
+          if (f.fieldNumber === GBA_BLOB_ID && f.wireType === 2) {
+            blobId = f.bytes;
+          }
         }
+        return { kind: "kv_get_blob", kvId, blobId, requestMetadata };
       }
-      return { kind: "kv_set_blob", kvId, blobId, blobData, requestMetadata };
+      if (setBlobArgs) {
+        // SetBlobArgs { blob_id (1): bytes, blob_data (2): bytes }
+        let blobId: Buffer = Buffer.alloc(0);
+        let blobData: Buffer = Buffer.alloc(0);
+        for (const f of decodeFields(setBlobArgs)) {
+          if (f.fieldNumber === SBA_BLOB_ID && f.wireType === 2) {
+            blobId = f.bytes;
+          } else if (f.fieldNumber === SBA_BLOB_DATA && f.wireType === 2) {
+            blobData = f.bytes;
+          }
+        }
+        return { kind: "kv_set_blob", kvId, blobId, blobData, requestMetadata };
+      }
     }
+    return null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 // ─── Phase 2: full ExecServerMessage variant decoder ───────────────────────
@@ -849,6 +857,12 @@ export type ExecServerEvent =
   | { kind: "exec_fetch"; execMsgId: number; execId: string; url: string }
   | { kind: "exec_write_shell_stdin"; execMsgId: number; execId: string }
   | {
+      kind: "exec_mcp_state";
+      execMsgId: number;
+      execId: string;
+      serverIdentifiers: string[];
+    }
+  | {
       kind: "exec_mcp";
       execMsgId: number;
       execId: string;
@@ -887,142 +901,163 @@ function decodeShellArgs(payload: Buffer): DecodedShellArgs {
 }
 
 export function decodeExecServerEvent(payload: Buffer): ExecServerEvent | null {
-  for (const top of decodeFields(payload)) {
-    if (top.fieldNumber !== ASM_EXEC_SERVER_MESSAGE || top.wireType !== 2) continue;
+  try {
+    for (const top of decodeFields(payload)) {
+      if (top.fieldNumber !== ASM_EXEC_SERVER_MESSAGE || top.wireType !== 2) continue;
 
-    let execMsgId = 0;
-    let execId = "";
-    let variantField = 0;
-    let variantBytes: Buffer | null = null;
+      let execMsgId = 0;
+      let execId = "";
+      let variantField = 0;
+      let variantBytes: Buffer | null = null;
 
-    for (const f of decodeFields(top.bytes)) {
-      if (f.fieldNumber === ESM_ID && f.wireType === 0) {
-        execMsgId = Number(f.varint);
-      } else if (f.fieldNumber === ESM_EXEC_ID && f.wireType === 2) {
-        execId = f.bytes.toString("utf8");
-      } else if (f.wireType === 2) {
-        // Any other LEN field is the variant payload. Take the first one we
-        // see — variants don't co-occur in a well-formed message.
-        if (variantField === 0) {
-          variantField = f.fieldNumber;
-          variantBytes = f.bytes;
-        }
-      }
-    }
-
-    if (variantBytes === null) continue;
-
-    switch (variantField) {
-      case ESM_REQUEST_CONTEXT_ARGS:
-        return { kind: "exec_request_context", execMsgId, execId };
-      case ESM_READ_ARGS:
-        return {
-          kind: "exec_read",
-          execMsgId,
-          execId,
-          path: decodeStringField(variantBytes, ARG_PATH),
-        };
-      case ESM_WRITE_ARGS:
-        return {
-          kind: "exec_write",
-          execMsgId,
-          execId,
-          path: decodeStringField(variantBytes, ARG_PATH),
-        };
-      case ESM_DELETE_ARGS:
-        return {
-          kind: "exec_delete",
-          execMsgId,
-          execId,
-          path: decodeStringField(variantBytes, ARG_PATH),
-        };
-      case ESM_LS_ARGS:
-        return {
-          kind: "exec_ls",
-          execMsgId,
-          execId,
-          path: decodeStringField(variantBytes, ARG_PATH),
-        };
-      case ESM_GREP_ARGS:
-        return { kind: "exec_grep", execMsgId, execId };
-      case ESM_DIAGNOSTICS_ARGS:
-        return { kind: "exec_diagnostics", execMsgId, execId };
-      case ESM_SHELL_ARGS: {
-        const shell = decodeShellArgs(variantBytes);
-        return {
-          kind: "exec_shell",
-          execMsgId,
-          execId,
-          ...shell,
-        };
-      }
-      case ESM_SHELL_STREAM_ARGS: {
-        const shell = decodeShellArgs(variantBytes);
-        return {
-          kind: "exec_shell_stream",
-          execMsgId,
-          execId,
-          ...shell,
-        };
-      }
-      case ESM_BACKGROUND_SHELL_SPAWN: {
-        const shell = decodeShellArgs(variantBytes);
-        return {
-          kind: "exec_bg_shell",
-          execMsgId,
-          execId,
-          ...shell,
-        };
-      }
-      case ESM_FETCH_ARGS:
-        return {
-          kind: "exec_fetch",
-          execMsgId,
-          execId,
-          url: decodeStringField(variantBytes, ARG_FETCH_URL),
-        };
-      case ESM_WRITE_SHELL_STDIN_ARGS:
-        return { kind: "exec_write_shell_stdin", execMsgId, execId };
-      case ESM_MCP_ARGS: {
-        // McpArgs.args is map<string, bytes>; each value is a protobuf-
-        // encoded google.protobuf.Value. Decode keys and value-bytes here,
-        // then convert each Value to its JSON shape.
-        let toolName = "";
-        let toolCallId = "";
-        const args: Record<string, unknown> = {};
-        for (const f of decodeFields(variantBytes)) {
-          if (f.wireType !== 2) continue;
-          if (f.fieldNumber === MCA_TOOL_NAME) {
-            toolName = f.bytes.toString("utf8");
-          } else if (f.fieldNumber === MCA_NAME && !toolName) {
-            // tool_name (5) takes precedence; fall back to name (1)
-            toolName = f.bytes.toString("utf8");
-          } else if (f.fieldNumber === MCA_TOOL_CALL_ID) {
-            toolCallId = f.bytes.toString("utf8");
-          } else if (f.fieldNumber === MCA_ARGS) {
-            // FieldsEntry { key (1): string, value (2): bytes }
-            let key = "";
-            let valueBytes: Buffer | null = null;
-            for (const entry of decodeFields(f.bytes)) {
-              if (entry.fieldNumber === MAP_KEY && entry.wireType === 2) {
-                key = entry.bytes.toString("utf8");
-              } else if (entry.fieldNumber === MAP_VALUE && entry.wireType === 2) {
-                valueBytes = entry.bytes;
-              }
-            }
-            if (key && valueBytes !== null) {
-              args[key] = decodeProtobufValue(valueBytes);
-            }
+      for (const f of decodeFields(top.bytes)) {
+        if (f.fieldNumber === ESM_ID && f.wireType === 0) {
+          execMsgId = Number(f.varint);
+        } else if (f.fieldNumber === ESM_EXEC_ID && f.wireType === 2) {
+          execId = f.bytes.toString("utf8");
+        } else if (f.fieldNumber === ESM_SPAN_CONTEXT || f.fieldNumber === 55) {
+          // Skip metadata fields (span_context=19, accept_hook_additional_contexts=55)
+          continue;
+        } else if (f.wireType === 2) {
+          // Any other LEN field is the variant payload. Take the first one we
+          // see — variants don't co-occur in a well-formed message.
+          if (variantField === 0) {
+            variantField = f.fieldNumber;
+            variantBytes = f.bytes;
           }
         }
-        return { kind: "exec_mcp", execMsgId, execId, toolName, toolCallId, args };
       }
-      default:
-        // Unknown variant — return null so caller can keep buffering.
-        return null;
+
+      if (variantBytes === null) continue;
+
+      switch (variantField) {
+        case ESM_REQUEST_CONTEXT_ARGS:
+          return { kind: "exec_request_context", execMsgId, execId };
+        case ESM_READ_ARGS:
+          return {
+            kind: "exec_read",
+            execMsgId,
+            execId,
+            path: decodeStringField(variantBytes, ARG_PATH),
+          };
+        case ESM_WRITE_ARGS:
+          return {
+            kind: "exec_write",
+            execMsgId,
+            execId,
+            path: decodeStringField(variantBytes, ARG_PATH),
+          };
+        case ESM_DELETE_ARGS:
+          return {
+            kind: "exec_delete",
+            execMsgId,
+            execId,
+            path: decodeStringField(variantBytes, ARG_PATH),
+          };
+        case ESM_LS_ARGS:
+          return {
+            kind: "exec_ls",
+            execMsgId,
+            execId,
+            path: decodeStringField(variantBytes, ARG_PATH),
+          };
+        case ESM_GREP_ARGS:
+          return { kind: "exec_grep", execMsgId, execId };
+        case ESM_DIAGNOSTICS_ARGS:
+          return { kind: "exec_diagnostics", execMsgId, execId };
+        case ESM_SHELL_ARGS: {
+          const shell = decodeShellArgs(variantBytes);
+          return {
+            kind: "exec_shell",
+            execMsgId,
+            execId,
+            ...shell,
+          };
+        }
+        case ESM_SHELL_STREAM_ARGS: {
+          const shell = decodeShellArgs(variantBytes);
+          return {
+            kind: "exec_shell_stream",
+            execMsgId,
+            execId,
+            ...shell,
+          };
+        }
+        case ESM_BACKGROUND_SHELL_SPAWN: {
+          const shell = decodeShellArgs(variantBytes);
+          return {
+            kind: "exec_bg_shell",
+            execMsgId,
+            execId,
+            ...shell,
+          };
+        }
+        case ESM_FETCH_ARGS:
+          return {
+            kind: "exec_fetch",
+            execMsgId,
+            execId,
+            url: decodeStringField(variantBytes, ARG_FETCH_URL),
+          };
+        case ESM_WRITE_SHELL_STDIN_ARGS:
+          return { kind: "exec_write_shell_stdin", execMsgId, execId };
+        case ESM_MCP_ARGS: {
+          // McpArgs.args is map<string, bytes>; each value is a protobuf-
+          // encoded google.protobuf.Value. Decode keys and value-bytes here,
+          // then convert each Value to its JSON shape.
+          let toolName = "";
+          let toolCallId = "";
+          const args: Record<string, unknown> = {};
+          for (const f of decodeFields(variantBytes)) {
+            if (f.wireType !== 2) continue;
+            if (f.fieldNumber === MCA_TOOL_NAME) {
+              toolName = f.bytes.toString("utf8");
+            } else if (f.fieldNumber === MCA_NAME && !toolName) {
+              // tool_name (5) takes precedence; fall back to name (1)
+              toolName = f.bytes.toString("utf8");
+            } else if (f.fieldNumber === MCA_TOOL_CALL_ID) {
+              toolCallId = f.bytes.toString("utf8");
+            } else if (f.fieldNumber === MCA_ARGS) {
+              // FieldsEntry { key (1): string, value (2): bytes }
+              let key = "";
+              let valueBytes: Buffer | null = null;
+              for (const entry of decodeFields(f.bytes)) {
+                if (entry.fieldNumber === MAP_KEY && entry.wireType === 2) {
+                  key = entry.bytes.toString("utf8");
+                } else if (entry.fieldNumber === MAP_VALUE && entry.wireType === 2) {
+                  valueBytes = entry.bytes;
+                }
+              }
+              if (key && valueBytes !== null) {
+                args[key] = decodeProtobufValue(valueBytes);
+              }
+            }
+          }
+          return { kind: "exec_mcp", execMsgId, execId, toolName, toolCallId, args };
+        }
+        case ESM_MCP_STATE_EXEC_ARGS: {
+          const serverIdentifiers: string[] = [];
+          for (const f of decodeFields(variantBytes)) {
+            if (f.fieldNumber === 1 && f.wireType === 2) {
+              serverIdentifiers.push(f.bytes.toString("utf8"));
+            }
+          }
+          return {
+            kind: "exec_mcp_state",
+            execMsgId,
+            execId,
+            serverIdentifiers,
+          };
+        }
+        default:
+          // Unknown variant — return null so caller can keep buffering.
+          return null;
+      }
     }
+    return null;
+  } catch {
+    return null;
   }
-  return null;
 }
 
 /**
@@ -1052,6 +1087,37 @@ export function encodeRequestContextResponse(
     encodeUInt32Field(ECM_ID, id),
     encodeString(ECM_EXEC_ID, execId),
     encodeMessage(ECM_REQUEST_CONTEXT_RESULT, [success]),
+  ]);
+  return wrapConnectFrame(ecm);
+}
+
+/**
+ * Build an McpStateSuccess response to an McpStateExecArgs (field 36) request.
+ * When Cursor requests the tools available for registered MCP servers, this returns
+ * the server definition and its declared tools so Cursor can dispatch model tool calls.
+ */
+export function encodeMcpStateSuccess(
+  id: number,
+  execId: string,
+  tools: McpToolDefinition[],
+  serverIdentifier = "omniroute"
+): Buffer {
+  const serverFields: Buffer[] = [
+    encodeString(1, serverIdentifier),
+    encodeString(2, serverIdentifier),
+    encodeString(7, "connected"),
+  ];
+  if (tools && tools.length > 0) {
+    for (const tool of tools) {
+      serverFields.push(encodeMessage(5, [encodeMcpToolDefinitionBody(tool)]));
+    }
+  }
+  const server = encodeMessage(1, serverFields);
+  const success = encodeMessage(1, [server]);
+  const ecm = encodeMessage(ACM_EXEC_CLIENT_MESSAGE, [
+    encodeUInt32Field(ECM_ID, id),
+    encodeString(ECM_EXEC_ID, execId),
+    encodeMessage(ECM_MCP_STATE_EXEC_RESULT, [success]),
   ]);
   return wrapConnectFrame(ecm);
 }
@@ -1156,6 +1222,17 @@ export function encodeExecShellRejected(
 ): Buffer {
   const rejected = encodeMessage(RES_REJECTED, [encodeShellRejection(command, workingDir, reason)]);
   return wrapExecClientMessage(execMsgId, execId, ECM_SHELL_RESULT, rejected);
+}
+
+export function encodeExecShellStreamRejected(
+  execMsgId: number,
+  execId: string,
+  command: string,
+  workingDir: string,
+  reason: string
+): Buffer {
+  const rejected = encodeMessage(5, [encodeShellRejection(command, workingDir, reason)]);
+  return wrapExecClientMessage(execMsgId, execId, ECM_SHELL_STREAM, rejected);
 }
 
 export function encodeExecBackgroundShellSpawnRejected(

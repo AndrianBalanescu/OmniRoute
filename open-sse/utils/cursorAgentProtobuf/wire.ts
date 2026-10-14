@@ -117,6 +117,26 @@ export function decodeFields(buf: Buffer): Field[] {
       pos += 4;
     } else if (wireType === 1) {
       pos += 8;
+    } else if (wireType === 3) {
+      // Group: skip fields until matching End Group (wireType 4)
+      let depth = 1;
+      while (pos < buf.length && depth > 0) {
+        const [gtag, gnp] = decodeVarint(buf, pos);
+        pos = gnp;
+        const gwt = Number(gtag & 0x7n);
+        if (gwt === 3) depth++;
+        else if (gwt === 4) depth--;
+        else if (gwt === 0) {
+          const [, p] = decodeVarint(buf, pos);
+          pos = p;
+        } else if (gwt === 2) {
+          const [glen, p] = decodeVarint(buf, pos);
+          pos = p + Number(glen);
+        } else if (gwt === 5) pos += 4;
+        else if (gwt === 1) pos += 8;
+      }
+    } else if (wireType === 4) {
+      // End group tag outside of a tracked start group — safely skip
     } else {
       throw new Error(`unsupported wireType ${wireType}`);
     }
