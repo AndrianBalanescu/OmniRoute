@@ -429,6 +429,45 @@ export async function cleanupCcrBlocks(): Promise<CleanupResult> {
 }
 
 /**
+ * Clean up old conversation_turn_nodes and agentic_conversations based on retention settings.
+ * Uses the callLogs retention window (default 30 days) to match conversation log lifetime.
+ */
+export async function cleanupConversationTurnNodes(): Promise<CleanupResult> {
+  const db = getDbInstance();
+  const retention = getRetentionSettings();
+
+  const retentionDays = retention.callLogs;
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+  const cutoffISO = cutoffDate.toISOString();
+
+  const result: CleanupResult = { deleted: 0, errors: 0 };
+
+  try {
+    if (tableExists("conversation_turn_nodes")) {
+      const stmtNodes = db.prepare("DELETE FROM conversation_turn_nodes WHERE last_seen_at < ?");
+      const runNodes = stmtNodes.run(cutoffISO);
+      result.deleted += runNodes.changes;
+    }
+
+    if (tableExists("agentic_conversations")) {
+      const stmtConvs = db.prepare("DELETE FROM agentic_conversations WHERE last_seen_at < ?");
+      const runConvs = stmtConvs.run(cutoffISO);
+      result.deleted += runConvs.changes;
+    }
+
+    console.log(
+      `[Cleanup] Deleted ${result.deleted} conversation turn nodes/conversations older than ${retentionDays} days`
+    );
+  } catch (err: unknown) {
+    console.error("[Cleanup] Error cleaning conversation_turn_nodes:", err);
+    result.errors++;
+  }
+
+  return result;
+}
+
+/**
  * Run all cleanup functions if auto-cleanup is enabled.
  */
 export async function runAutoCleanup(): Promise<{
@@ -461,6 +500,7 @@ export async function runAutoCleanup(): Promise<{
     compressionRunTelemetry: await cleanupCompressionRunTelemetry(),
     proxyLogs: await cleanupProxyLogs(),
     ccrBlocks: await cleanupCcrBlocks(),
+    conversationTurnNodes: await cleanupConversationTurnNodes(),
   };
 
   const totalDeleted = Object.values(results).reduce((sum, r) => sum + r.deleted, 0);

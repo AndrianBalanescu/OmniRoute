@@ -46,4 +46,10 @@ describe("cleanup DB module", () => {
     assert.ok(typeof result.deleted === "number");
     assert.ok(typeof result.errors === "number");
   });
+
+  it("cleanupConversationTurnNodes returns result with deleted count", async () => {
+    const result = await mod.cleanupConversationTurnNodes();
+    assert.ok(typeof result.deleted === "number", "should have deleted count");
+    assert.ok(typeof result.errors === "number", "should have errors count");
+  });
 });
